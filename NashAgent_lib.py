@@ -9,58 +9,49 @@ from copy import deepcopy as dc
 device=torch.device("cpu")
 
 
-class ScaledSigmoid(nn.Module):
+class ScaledSigmoid(nn.Module):# Costum NN layer to scale action value
     def __init__(self, N):
         super(ScaledSigmoid, self).__init__()
         self.N = N-1  # The scaling factor to scale last column to [0, N]
 
     def forward(self, x):
-        # Apply sigmoid to the entire output
-        x = torch.sigmoid(x)
-        # Scale only the last column (index 4) to [0, N]
-        x[:, -1] *= self.N
-
+        x = torch.sigmoid(x) # Apply sigmoid to the entire output
+        x[:, -1] *= self.N # Scale only the last column (index 4) to [0, N]
         return x
     
 class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend on the order of the agents
     """
     Permutation Invariant Network
-
     :param n_users:        Number of agents in the scenario
     :param n_stations:     Number of stations in the scenario
     :param out_dim:        Dimension of output
     :param block_size:     Number of invariant features of each agent
     :param num_moments:    Number of features/moments to summarize invariant features of each agent
     """
-
     n_users: int
     n_stations: int
     out_dim: int
     block_size: int
     num_moments: int
 
-    def initialize_weights(self):
+    def initialize_weights(self): # To try with different wegiht initializations
         for layer in self.decoder_net:
             if isinstance(layer, nn.Linear):
-            
-                #nn.init.xavier_uniform_(layer.weight, gain=nn.init.calculate_gain('sigmoid'))
-                #nn.init.zeros_(layer.bias)  # Optional: initialize biases to zero
-                # Alternative initializations (uncomment as needed)
-                # nn.init.xavier_normal_(layer.weight, gain=nn.init.calculate_gain('sigmoid'))  
-                # nn.init.kaiming_uniform_(layer.weight, nonlinearity='sigmoid') 
-                #  
-                nn.init.uniform_(layer.weight, a=-0.5, b=0.5)  ### BETTER
-                
+                # pass # default weight initialization (output values around 0)
+                # nn.init.xavier_uniform_(layer.weight, gain=nn.init.calculate_gain('sigmoid')) # didn´t work
+                # nn.init.zeros_(layer.bias)  # Optional: initialize biases to zero # didn´t work
+                # nn.init.xavier_normal_(layer.weight, gain=nn.init.calculate_gain('sigmoid'))  # didn´t work
+                # nn.init.kaiming_uniform_(layer.weight, nonlinearity='sigmoid') # didn´t work
+                nn.init.uniform_(layer.weight, a=-0.5, b=0.5)  # BETTER
                 #nn.init.trunc_normal_(layer.weight, mean=0.0, std=0.5)  ## MAY be better too
+
 
     def __init__(self,n_users, n_stations, out_dim, lat_dims, layers):
         super(PermInvariantQNN, self).__init__()
-
         # Store input and output dimensions
         self.n_users = n_users
         self.n_stations = n_stations
         self.out_dim = out_dim 
-
         nets = []
         input_dim = n_stations * 3 # number of features/columns of the state space (rate , station_id , rate_type)
         nets.append(nn.Linear(input_dim, lat_dims)) # lat_dims = number of neurons per layer
@@ -68,15 +59,12 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
         
         for i in range(layers):
             nets.append(nn.Linear(lat_dims, lat_dims))
-            #nets.append(nn.BatchNorm1d(lat_dims))  # Add normalization
+            #nets.append(nn.BatchNorm1d(lat_dims))  # Add normalization (didn´t work)
             nets.append(nn.SiLU())
             
         nets.append(nn.Linear(lat_dims, self.out_dim))
-
         self.decoder_net = nn.Sequential(*nets)
-        
         self.scaled_sigmoid = ScaledSigmoid(N=n_stations)
-
         self.initialize_weights()
 
 
@@ -148,7 +136,7 @@ class NashNN():
         num_entries = len(X)
         arr = X.repeat_interleave(self.n_users, dim = 0)
         ids = torch.arange(self.n_users).clone().detach().tile(num_entries)
-        #ids = torch.tensor(torch.arange(self.n_users)).tile(num_entries)
+        #ids = torch.tensor(torch.arange(self.n_users)).tile(num_entries) #previous version (didn´t work)
         mask = torch.ones_like(arr).scatter_(1, ids.unsqueeze(1), 0.)
         res = arr[mask.bool()].view(-1, self.n_users - 1)
         
@@ -166,6 +154,8 @@ class NashNN():
 
         return action_list
 
+    # ---- Previously used for exploration -------------
+    '''
     def get_random_action(self,nash_a ,state):
         """
         Selects random action different from nash_action
@@ -183,13 +173,16 @@ class NashNN():
             else:
                 random_action[i] = original_action  # If no alternative, keep the original action
         return random_action
-    
+    '''
+
     def update_slow(self):
         self.slow_val_net.load_state_dict(dc(self.value_net.state_dict()))
-        #tau = 0.05
-        #for target_param, param in zip(self.slow_val_net.parameters(), self.value_net.parameters()):
-         #   target_param.data.copy_(tau * param.data + (1.0 - tau) * target_param.data)
-
+        # Idea to improve results (didn´t work)
+        '''
+        tau = 0.05
+        for target_param, param in zip(self.slow_val_net.parameters(), self.value_net.parameters()):
+           target_param.data.copy_(tau * param.data + (1.0 - tau) * target_param.data)
+        '''
 
     def predict_value(self, states, slow=False):
         """

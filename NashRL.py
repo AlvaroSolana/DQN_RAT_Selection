@@ -46,14 +46,10 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
 
     n_agents = rat_env.n_users
     max_T = max_steps
-
     
     os.makedirs(os.path.dirname(path), exist_ok=True)
     
-
     if nash_agent is None:
-        # Set number of output variables needed from net: ( c1 + c2 + c3 + mu)
-        #parameter_number = 4 used before for the output dimensions of the NN
         nash_agent = NashNN(n_users=n_agents, n_stations = rat_env.n_stations,max_steps=max_steps)
 
     good_action_net_w = nash_agent.action_net.state_dict()
@@ -68,22 +64,21 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
     sum_loss = np.zeros(num_sim)
     total_l = 0
 
-    reward_values = [] # To store the rewards during the training
-    episode_rewards = []
-    last_rats = [0]*rat_env.n_stations
+    reward_values = [] # store training rewards (for visualization)
+    episode_rewards = [] # store training rewards (for visualization)
+    last_rats = [0]*rat_env.n_stations # store last rats chosen (for visualization)
+
+    #-----for debugging------
+    rand_aps_chosen, rand_lte_chosen, best_aps_chosen, best_lte_chosen, best_disconnected, rand_disconnected, step_counter, ap_step, lte_step,negative_reward_count = [0] * 10
+    print_idx = num_sim/5
+    #------------------------
 
     ep = 0.9
     min_ep = 0.1
-
-    # for debugging
-    rand_aps_chosen, rand_lte_chosen, best_aps_chosen, best_lte_chosen, best_disconnected, rand_disconnected, step_counter, ap_step, lte_step,negative_reward_count = [0] * 10
-    print_idx = num_sim/5
     # ---------- Main simulation Block -----------------
     for k in range(0, num_sim):
-        # Decays Exploration rate Linearly and Resets Loss
-        eps = max(max(ep - (ep- min_ep )*(k/(num_sim-1)), 0), min_ep)
+        eps = max(max(ep - (ep- min_ep )*(k/(num_sim-1)), 0), min_ep) #exploration rate
         total_l = 0
-
         print_flag = (not k % 50) and k > 0  # Sets Print Flag - Prints simulation results every 20 simuluations
         if print_flag:
             #update slow value network  UPDATE TARGET NETWORK
@@ -92,12 +87,11 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
                 # update slow network
                 nash_agent.update_slow()
             elif last_loss < 100:
-                # record last good point
                 nash_agent.update_slow()
                 good_value_net_w = dc(nash_agent.value_net.state_dict())
                 good_action_net_w = dc(nash_agent.action_net.state_dict())
             else:
-                # reset
+                # reset if huge loss
                 print("RESETTING WEIGHTS")
                 if good_action_net_w is not None and good_value_net_w is not None:
                     nash_agent.value_net.load_state_dict(good_value_net_w)
@@ -108,7 +102,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
                 else:
                     print("CANNOT RESET, NO SAVE POINT")
                 
-            
+        # Initialize buffers  
         cur_s_buffer=torch.empty(0).to(device)
         next_s_buffer=torch.empty(0).to(device)
         term_flag_buffer=torch.empty(0).to(device)
@@ -116,28 +110,30 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
         action_buffer=torch.empty(0).to(device)
 
         for i in range(0, mini_batch): # 10 episodes
-            rat_env.reset()
-            episode_reward = np.zeros(n_agents)
+            rat_env.reset() # reset enviroment
+            episode_reward = np.zeros(n_agents) # for visualization
             for t in range(0, max_T):  # 10 step
                 step_counter+=1 # just for debugging        
                 rat_env.iteration = t
                 current_state, lr, _ = rat_env.get_state()
                 state = expand_list(current_state,n_agents)
+                
+                ''' # Previously used for debugging
                 no_APs = 0
                 for agent in range(0,n_agents):
                     aps = state[agent, 4:rat_env.n_stations]
                     if (aps == 0).all() :
                         print("all zeros")
                         no_APs +=1
-
+                '''
 
                 nash_a = nash_agent.predict_action(state)[:,4].detach()
 
-                rand_action_flag = np.random.random() < eps
-                if rand_action_flag:
+                rand_action_flag = np.random.random() < eps # Choose exploration or exploitation
+                if rand_action_flag: # Select random action
                     noise = torch.randn(nash_a.size()) * (rv_max - (rv_max-rv_min)*k/num_sim)
                     a = nash_a + noise                   
-                    #------------- FOR DEBUGGING---------------------------
+                    #------------- FOR DEBUGGING--------------
                     lte_select = False
                     ap_select = False
                     for i in range(n_agents):   
@@ -150,10 +146,9 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
                             rand_aps_chosen += 1
                             ap_select = True               
                     # --------------------------------------- 
-                else:
-                    a = nash_a
-
-                    #------------- FOR DEBUGGING---------------------------
+                else: # choose best action (nash action)
+                    a = nash_a 
+                #------------- FOR DEBUGGING-------------
                     lte_select = False
                     ap_select = False
                     for i in range(n_agents):   
@@ -174,7 +169,6 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
                 # --------------------------------------- 
                 
                 a = torch.clamp(a, min=0, max=(rat_env.n_stations-1))
-       
                 a = a.to(device)
 
                 # Take an step with the chosen action
@@ -183,9 +177,9 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
                 next_s = expand_list(new_state, n_agents)
                 
                 negative_reward = torch.any(torch.eq(lr, -1))
-                negative_reward_count += torch.sum(torch.eq(lr, -1)).item()
 
                 # -------- For debugging --------
+                negative_reward_count += torch.sum(torch.eq(lr, -1)).item()
                 if negative_reward:
                     if rand_action_flag:
                         rand_disconnected+=1
@@ -196,7 +190,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
                 #----------------------------------           
                 if rat_env.iteration == (max_steps-1) or negative_reward:
                     isLastState = torch.ones(n_agents,dtype=torch.float32).to(device)
-                    episode_reward = episode_reward/(t+1) ## for debugging
+                    episode_reward = episode_reward/(t+1) # for debugging
                 else:
                     isLastState = torch.zeros(n_agents,dtype=torch.float32).to(device)
           
@@ -205,25 +199,25 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
                 cur_s = cur_s.detach()
                 next_s = next_s.detach()
 
+                # Add step results to the buffers
                 cur_s_buffer=torch.cat([cur_s_buffer, cur_s], dim = 0)
                 next_s_buffer=torch.cat([next_s_buffer, next_s], dim = 0)
                 term_flag_buffer=torch.cat([term_flag_buffer, torch.unsqueeze(isLastState,0)], dim = 0)
                 rewards_buffer=torch.cat([rewards_buffer, torch.unsqueeze(rewards,0)], dim = 0)
                 action_buffer=torch.cat([action_buffer, torch.unsqueeze(action,0)], dim = 0)
 
-                #### DEbugging block ####
-
+                #------for debugging---------
                 if (num_sim-k) < 300:
                     last_rats = rat_env.get_rat_chosen(a,last_rats)
+                #----------------------------------           
 
                 if negative_reward:
                     break
 
-                # Prints Some Information
-                #if (print_flag) and i == print_idx:
-               #     print("Rewards: {}".format(rewards))
-            episode_rewards.append(episode_reward)
 
+            episode_rewards.append(episode_reward) # for visualization
+
+        # -------- For debugging --------
         if (k%print_idx == 0 and k>0) or k==(num_sim-1):
             aps_chosen = best_aps_chosen + rand_aps_chosen
             lte_chosen = best_lte_chosen + rand_lte_chosen
@@ -245,26 +239,20 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
             print("-----------------------------------------------------------------")
 
             rand_aps_chosen, rand_lte_chosen, best_aps_chosen, best_lte_chosen, best_disconnected, rand_disconnected, step_counter, ap_step, lte_step,negative_reward_count = [0] * 10
-
-
-
-        #print(f"Epoch total reward {rewards_buffer.sum()}")
-        #print(f"Iteration {k} : All users chose station 0 {all_zeros}/100 times before adding noise")
+        
+        # --------------------------------------
 
         nash_agent.value_net.train()
-        #nash_agent.action_net.train()
         nash_agent.action_net.eval()
         
         # Computes value loss and updates Value network
-        replay_sample = (cur_s_buffer, next_s_buffer, term_flag_buffer, rewards_buffer, action_buffer)
-            
+        replay_sample = (cur_s_buffer, next_s_buffer, term_flag_buffer, rewards_buffer, action_buffer) 
         nash_agent.optimizer_value.zero_grad()
         vloss = nash_agent.compute_value_Loss(replay_sample)
         vloss.backward()
         torch.nn.utils.clip_grad_norm_(nash_agent.value_net.parameters(), 1e-1)
         nash_agent.optimizer_value.step()
-
-        nash_agent.action_net.train()  # train the action net
+        nash_agent.action_net.train()
         nash_agent.value_net.eval()
 
         # Computes action loss and updates Action network
@@ -279,22 +267,20 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
 
         # Calculat Current Step's final Total Loss
         total_l += vloss + loss
-
         sum_loss[k] = total_l
+        
         '''
         if print_flag:
             print(f"Iteration {k} Loss: {total_l} | V_Loss: {vloss} | A_Loss: {loss}")
         '''
            
-
         # Set Save Flag
         save_flag = not (k+1) % 500
         if save_flag:
             torch.save(nash_agent.action_net.state_dict(),
                        AN_file_name + "_" + str(k) + ".pt")
             torch.save(nash_agent.value_net.state_dict(), VN_file_name + "_" + str(k) + ".pt")
-            print("Weights saved to disk")
-            
+            print("Weights saved to disk")           
         if early_stop:
             if best_loss is None or total_l.item() < best_loss:
                 print("New best loss: " + str(total_l.item()))
@@ -302,26 +288,23 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
                 best_action_net = dc(nash_agent.action_net.state_dict())
                 best_value_net = dc(nash_agent.value_net.state_dict())
                 best_idx = k
-                impv_counter = 0
-                
+                impv_counter = 0    
                 if k > 1000:
                     torch.save(best_action_net, AN_file_name +"_" + str(best_idx) + "_best.pt")
                     torch.save(best_value_net, VN_file_name + "_" + str(best_idx) + "_best.pt")
-                    print("Weights saved to disk")
-                
+                    print("Weights saved to disk")   
             else:
                 impv_counter += 1
-                
                 if impv_counter > early_lim:
                     print("EARLY STOPPING ON ITERATION " + str(k))
                     print("Saving final weights to disk")
                     torch.save(best_action_net, AN_file_name +"_" + str(best_idx) + "_best.pt")
                     torch.save(best_value_net, VN_file_name + "_" + str(best_idx) + "_best.pt")
                     print("Weights saved to disk")
-                    
                     return nash_agent, sum_loss
 
-
+    
+    # ------------For visualization-------------
     import csv
     print("csv imported")    
     with open('rewards.csv', 'w', newline='') as file:
@@ -334,8 +317,6 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
     torch.save(nash_agent.action_net.state_dict(), AN_file_name + ".pt")
     torch.save(nash_agent.value_net.state_dict(), VN_file_name + ".pt")
     print("Weights saved to disk")
-
-    ### Debugging block ###
-
+    # ---------------------------------------------
 
     return nash_agent, sum_loss, last_rats, episode_rewards

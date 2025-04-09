@@ -117,7 +117,7 @@ class Multi_RAT_Network:
 
     # Define grid parameters
     grid_size = 350/math.sqrt(self.n_aps)  # Size of each square
-    num_rows = int(math.sqrt(self.n_aps))  # 4x4 grid
+    num_rows = int(math.sqrt(self.n_aps))  # NxN grid
     num_cols = int(math.sqrt(self.n_aps))
     start_x = -175  # Bottom-left X boundary
     start_y = -175  # Bottom-left Y boundary
@@ -138,7 +138,7 @@ class Multi_RAT_Network:
                 y = random.uniform(y_min, y_max)
                 
                 num_tries+=1
-                if num_tries>5:
+                if num_tries>5:#in case the square is inside the restricted area
                     x = random.uniform(start_x, -start_x)
                     y = random.uniform(start_y, -start_y)
 
@@ -146,10 +146,12 @@ class Multi_RAT_Network:
                 if not (-half_restricted_area <= x <= half_restricted_area and -half_restricted_area <= y <= half_restricted_area):
                     self.aps_positions.append([x, y])
                     break  # Exit loop once a valid AP position is found
-    if len(self.aps_positions)!=self.n_aps:
+    
+    if len(self.aps_positions)!=self.n_aps: # Just to make sure, shuold never happened
         print("wrong initialization of the APs")
-        self.reset
-    # Function to know if a user is in range of at least one AP
+        self.reset()
+    
+    #Function to know if a user is in range of at least one AP
     def in_AP_range(user_pos):
         for ap_pos in self.aps_positions:
             distance = math.sqrt((user_pos[0] - ap_pos[0]) ** 2 + (user_pos[1] - ap_pos[1]) ** 2)
@@ -182,13 +184,14 @@ class Multi_RAT_Network:
                 closest_distance = distance
                 assignment = [0, i]  # [RAT=0 (LTE SN), Node ID=i]
 
-        # With a 50% probability, check distances to APs
-        if random.random() < 0.5:  # 50% probability
-            for i, ap_pos in enumerate(self.aps_positions):
-                distance = math.sqrt((user_pos[0] - ap_pos[0]) ** 2 + (user_pos[1] - ap_pos[1]) ** 2)
-                if distance < closest_distance and distance < 12:
-                    closest_distance = distance
-                    assignment = [1, i]  # [RAT=1 (AP), Node ID=i]
+        # With a 50% probability, check distances to APs (they will always be closer than LTEs) 
+        #if random.random() < 0.5:  # 50% probability 
+        # Now we always start from APs
+        for i, ap_pos in enumerate(self.aps_positions):
+            distance = math.sqrt((user_pos[0] - ap_pos[0]) ** 2 + (user_pos[1] - ap_pos[1]) ** 2)
+            if distance < closest_distance and distance < 12:
+                closest_distance = distance
+                assignment = [1, i]  # [RAT=1 (AP), Node ID=i]
 
         self.user_assignments.append(assignment)
 
@@ -223,7 +226,7 @@ class Multi_RAT_Network:
     self.users_destinations = []
     half_restricted_area = (self.ltesn_area_width + 2 * 50) / 2
 
-    def crosses_restricted_area(x1, y1, x2, y2):
+    def crosses_restricted_area(x1, y1, x2, y2): # To avoid users to cross through the LTE stations where we have no data
         """ Check if a straight-line path crosses the restricted area """
         if (x1 < -half_restricted_area and x2 > half_restricted_area) or (x1 > half_restricted_area and x2 < -half_restricted_area):
             return True  # Crosses in X direction
@@ -375,45 +378,6 @@ class Multi_RAT_Network:
     plt.show()
 
 
-  def plot_environment_2(self):
-    """
-    Plot the positions of LTE SNs, APs, and users in the environment.
-    Use triangles for stations (different colors for LTE SNs and APs)
-    and color the users based on their RAT assignments.
-    """
-    plt.figure(figsize=(5, 5))
-
-    # Plot LTE SNs as red triangles
-    for position in self.ltesn_positions:
-        plt.scatter(position[0], position[1], c='red', marker='^', label='LTE SN', s=20)
-
-    # Plot APs as blue triangles
-    for position in self.aps_positions:
-        plt.scatter(position[0], position[1], c='blue', marker='^', label='AP', s=20)
-
-    # Plot users and color them based on RAT assignment
-    for user_idx, position in enumerate(self.users_positions):
-        rat, node_id = self.user_assignments[user_idx]
-        color = (1, 0, 0, 0.5) if rat == 0 else (0, 0, 1, 0.5)  # Light red for RAT=0, light blue for RAT=1
-        plt.scatter(position[0], position[1], c=color, label=f'User (RAT {rat})', s=10)
-
-    # Avoid duplicate legend entries
-    handles, labels = plt.gca().get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    plt.legend(by_label.values(), by_label.keys())
-
-    # Add grid, labels, and plot limits
-
-
-    plt.grid(True, linestyle='--', alpha=0.6)
-    plt.title('Environment Layout with User Assignments')
-    plt.xlabel('X Position (m)')
-    plt.ylabel('Y Position (m)')
-    axis_limit = self.user_area_width +  self.ltesn_area_width/2 + 50
-    plt.xlim(-axis_limit, axis_limit)
-    plt.ylim(-axis_limit, axis_limit)
-    plt.show()
-
   def get_wifi_rate(self,rssi_value):
     """
     Returns the user rate according to the RSSI value
@@ -500,7 +464,7 @@ class Multi_RAT_Network:
             '''
             reward = norm_thr[i]
 
-        else:
+        else: # User disconnected
             reward = -1
         
         users_reward.append(reward)
@@ -558,8 +522,7 @@ class Multi_RAT_Network:
     self.last_reward = reward
 
     # Update state
-    self.update_state()
-                      
+    self.update_state()          
     cur_state, _, _=self.get_state()
         
     return Transition(last_state, actions, cur_state, self.last_reward)
@@ -585,12 +548,13 @@ class Multi_RAT_Network:
   def __repr__(self):
         return self.__str__()    
   
-  # for debugging purposes
+  #-----debugging-------------
   def get_rat_chosen(self,actions,last_rats):
     for action in actions:        
         rat_choice = int(action)
         last_rats[rat_choice]+=1    
     return last_rats
+  #--------------------------
 
 
 class ExperienceReplay:
