@@ -1,7 +1,5 @@
 # Nash_DQN_RAT
 
-# Machine Learning for DDoS Repository
-
 ## Overview
 
 This repository contains both python files and Jupyter Notebooks that are used in a simulation where the goal is to improve overall user throughput using Reinforcement Learning
