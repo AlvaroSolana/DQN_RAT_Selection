@@ -85,7 +85,7 @@ class NashNN():
     :param term_cost:    Terminal costs (estimated or otherwise)
     """
 
-    def __init__(self, n_users, n_stations, max_steps, lr=3e-4, lat_dims=32, c_cons=0.1, c2_cons=True, c3_pos=True, layers=4, weighted_adam=True):
+    def __init__(self, n_users, n_stations, max_steps, lr=1e-5, lat_dims=32, c_cons=0.1, c2_cons=True, c3_pos=True, layers=4, weighted_adam=True):
         # Simulation Parameters
         self.T = max_steps
         self.lr = lr

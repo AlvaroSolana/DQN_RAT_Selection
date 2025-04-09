@@ -226,6 +226,8 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, num_sim, AN_file_name, VN_fil
                 aps_chosen = 1
             if disconnected == 0:
                 disconnected =1
+            if lte_chosen == 0:
+                lte_chosen =1
             print(f"Iteration {k - print_idx} to {k}. Total Steps = {step_counter}. Total stations selected = {aps_chosen + lte_chosen}(APs + LTEs)")
             print()
             print(f"APs were selected {aps_chosen} times across {ap_step} steps. In {disconnected} steps we had disconnection ")
