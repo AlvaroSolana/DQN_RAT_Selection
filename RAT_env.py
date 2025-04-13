@@ -55,7 +55,7 @@ class Multi_RAT_Network:
   :param plot: To plot the enviroment intial distribution of its elements
   """
 
-  def __init__(self, user_area_width, ltesn_area_width,n_users, n_aps, cqi_dataset, rssi_dataset, plot,  max_steps = 10):
+  def __init__(self, user_area_width, ltesn_area_width,n_users, n_aps, cqi_dataset, rssi_dataset, n_steps,  plot ):
     """
     Initialize the environment (multiple networks) with its parameters
     """
@@ -67,7 +67,7 @@ class Multi_RAT_Network:
     self.n_users = n_users  
     self.cqi_dataset = cqi_dataset  
     self.rssi_dataset = rssi_dataset
-    self.max_steps = max_steps
+    self.n_steps = n_steps
     self.iteration = 0
 
     self.reset() # Initialize the enviroment
@@ -223,44 +223,43 @@ class Multi_RAT_Network:
     self.rat_type = self.rat_type.unsqueeze(0).repeat(self.n_users, 1)
 
     # Establish the destination position to which the user moves towards
-    self.users_destinations = []
     half_restricted_area = (self.ltesn_area_width + 2 * 50) / 2
-
+    self.users_destinations = []
+    self.users_path = []
     def crosses_restricted_area(x1, y1, x2, y2): # To avoid users to cross through the LTE stations where we have no data
         """ Check if a straight-line path crosses the restricted area """
         if (x1 < -half_restricted_area and x2 > half_restricted_area) or (x1 > half_restricted_area and x2 < -half_restricted_area):
-            return True  # Crosses in X direction
-        if (y1 < -half_restricted_area and y2 > half_restricted_area) or (y1 > half_restricted_area and y2 < -half_restricted_area):
-            return True  # Crosses in Y direction
-        return False
-
+            if (y1 < -half_restricted_area and y2 > half_restricted_area) or (y1 > half_restricted_area and y2 < -half_restricted_area):
+                return True  # Crosses in Y direction
+        else:
+            return False 
+    
     for user_pos in self.users_positions:
         while True:
             x = random.uniform(-half_full_area, half_full_area)
             y = random.uniform(-half_full_area, half_full_area)
             user_dest = [x, y]
 
-            # Ensure the destination is outside the restricted area and does not create a crossing path
-            if not (-half_restricted_area <= x <= half_restricted_area and -half_restricted_area <= y <= half_restricted_area) and \
-            not crosses_restricted_area(user_pos[0], user_pos[1], x, y):
-                self.users_destinations.append(user_dest)
-                break  # Valid destination found
-
-    # Generate the straight-line path for each user with equidistant points
-    self.users_path = []
-
-    for user_pos, user_dest in zip(self.users_positions, self.users_destinations):
-        x1, y1 = user_pos
-        x2, y2 = user_dest
-
-        valid_points = []
-        for step in range(self.max_steps + 1):
-            alpha = step / self.max_steps  # Ensures equidistant points
-            x = x1 + alpha * (x2 - x1)
-            y = y1 + alpha * (y2 - y1)
-            valid_points.append([x, y])
-
-        self.users_path.append(valid_points)
+            # Ensure the destination is outside the restricted area and does not create a diagonal crossing path
+            if not (-half_restricted_area <= x <= half_restricted_area and -half_restricted_area <= y <= half_restricted_area) and not crosses_restricted_area(user_pos[0], user_pos[1], x, y):
+                # Generate the straight-line path for each user with equidistant points
+                x1, y1 = user_pos
+                x2, y2 = user_dest
+                valid_points = []
+                valid_path = True
+                for step in range(self.n_steps + 1):
+                    alpha = step / self.n_steps  # Ensures equidistant points
+                    x = x1 + alpha * (x2 - x1)
+                    y = y1 + alpha * (y2 - y1)
+                    if (-half_restricted_area <= x <= half_restricted_area and -half_restricted_area <= y <= half_restricted_area):
+                        valid_path = False
+                        break # we need new destination
+                    valid_points.append([x, y])
+                
+                if valid_path:
+                    self.users_destinations.append(user_dest)
+                    self.users_path.append(valid_points)
+                    break  # Valid destination found
 
 
   def update_users_positions(self):
@@ -522,7 +521,7 @@ class Multi_RAT_Network:
     self.last_reward = reward
 
     # Update state
-    self.update_state()          
+    self.update_state()
     cur_state, _, _=self.get_state()
         
     return Transition(last_state, actions, cur_state, self.last_reward)
@@ -550,8 +549,9 @@ class Multi_RAT_Network:
   
   #-----debugging-------------
   def get_rat_chosen(self,actions,last_rats):
-    for action in actions:        
-        rat_choice = int(action)
+    for action in actions:
+        action = torch.clamp(action, min=0, max=(self.n_stations-1))        
+        rat_choice = int(torch.round(action))
         last_rats[rat_choice]+=1    
     return last_rats
   #--------------------------

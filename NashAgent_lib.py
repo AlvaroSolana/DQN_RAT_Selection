@@ -34,17 +34,17 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
     block_size: int
     num_moments: int
 
+  
     def initialize_weights(self): # To try with different wegiht initializations
         for layer in self.decoder_net:
             if isinstance(layer, nn.Linear):
-                # pass # default weight initialization (output values around 0)
+                #pass # default weight initialization (output values around 0)
                 # nn.init.xavier_uniform_(layer.weight, gain=nn.init.calculate_gain('sigmoid')) # didn´t work
                 # nn.init.zeros_(layer.bias)  # Optional: initialize biases to zero # didn´t work
-                # nn.init.xavier_normal_(layer.weight, gain=nn.init.calculate_gain('sigmoid'))  # didn´t work
-                # nn.init.kaiming_uniform_(layer.weight, nonlinearity='sigmoid') # didn´t work
-                nn.init.uniform_(layer.weight, a=-0.5, b=0.5)  # BETTER
-                #nn.init.trunc_normal_(layer.weight, mean=0.0, std=0.5)  ## MAY be better too
-
+                #nn.init.xavier_uniform_(layer.weight)
+                #nn.init.kaiming_uniform_(layer.weight) # didn´t work
+                #nn.init.uniform_(layer.weight, a=-0.5, b=0.5)  # better
+                nn.init.trunc_normal_(layer.weight, mean=0.0, std=0.5)  ## may be the best with 4000 iterations
 
     def __init__(self,n_users, n_stations, out_dim, lat_dims, layers):
         super(PermInvariantQNN, self).__init__()
@@ -67,7 +67,6 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
         self.scaled_sigmoid = ScaledSigmoid(N=n_stations)
         self.initialize_weights()
 
-
     def forward(self, input):
         out_tensor = self.decoder_net(input)  # Output shape: (n_users, out_dim)
         return out_tensor
@@ -85,9 +84,8 @@ class NashNN():
     :param term_cost:    Terminal costs (estimated or otherwise)
     """
 
-    def __init__(self, n_users, n_stations, max_steps, lr=1e-5, lat_dims=32, c_cons=0.1, c2_cons=True, c3_pos=True, layers=4, weighted_adam=True):
+    def __init__(self, n_users, n_stations, lr=2.5e-4, lat_dims= 128, c_cons=0.1, c2_cons=True, c3_pos=True, layers=4, weighted_adam=True):
         # Simulation Parameters
-        self.T = max_steps
         self.lr = lr
         self.n_users = n_users
         self.n_stations = n_stations
