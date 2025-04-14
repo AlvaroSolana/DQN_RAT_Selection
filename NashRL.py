@@ -88,16 +88,6 @@ def run_Nash_Agent(rat_env, n_steps, nash_agent, n_episodes, exploration_fractio
                 nash_agent.update_slow()
                 good_value_net_w = dc(nash_agent.value_net.state_dict())
                 good_action_net_w = dc(nash_agent.action_net.state_dict())
-            else:
-                print("RESETTING WEIGHTS") # reset if huge loss
-                if good_action_net_w is not None and good_value_net_w is not None:
-                    nash_agent.value_net.load_state_dict(good_value_net_w)
-                    nash_agent.action_net.load_state_dict(good_action_net_w)
-                    nash_agent.update_slow()
-                    #print(nash_agent.value_net.state_dict())
-                    #print(nash_agent.action_net.state_dict())
-                else:
-                    print("CANNOT RESET, NO SAVE POINT")
                 
         # Initialize buffers  
         cur_s_buffer=torch.empty(0).to(device)
@@ -266,11 +256,13 @@ def run_Nash_Agent(rat_env, n_steps, nash_agent, n_episodes, exploration_fractio
         
         # Computes value loss and updates Value network
         replay_sample = (cur_s_buffer, next_s_buffer, term_flag_buffer, rewards_buffer, action_buffer) 
+        
         nash_agent.optimizer_value.zero_grad()
         vloss = nash_agent.compute_value_Loss(replay_sample)
         vloss.backward()
         torch.nn.utils.clip_grad_norm_(nash_agent.value_net.parameters(), 1e-1)
         nash_agent.optimizer_value.step()
+        
         nash_agent.action_net.train()
         nash_agent.value_net.eval()
 
@@ -281,8 +273,8 @@ def run_Nash_Agent(rat_env, n_steps, nash_agent, n_episodes, exploration_fractio
         torch.nn.utils.clip_grad_norm_(nash_agent.action_net.parameters(), 1e-1)
         nash_agent.optimizer_DQN.step()
         
-        nash_agent.value_net.eval()  
-        nash_agent.action_net.eval()
+        nash_agent.value_net.train()  
+        nash_agent.action_net.train()
 
         # Calculat Current Step's final Total Loss
         total_l += vloss + loss
