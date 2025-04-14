@@ -7,17 +7,36 @@ import random
 from copy import deepcopy as dc
 
 device=torch.device("cpu")
+import torch.nn.functional as F
 
-
-class ScaledSigmoid(nn.Module):# Costum NN layer to scale action value
+class ScaledSigmoid(nn.Module):
     def __init__(self, N):
         super(ScaledSigmoid, self).__init__()
-        self.N = N-1  # The scaling factor to scale last column to [0, N]
+        self.N = N - 1  # The scaling factor to scale last column to [0, N]
 
     def forward(self, x):
-        x = torch.sigmoid(x) # Apply sigmoid to the entire output
-        x[:, -1] *= self.N # Scale only the last column (index 4) to [0, N]
-        return x
+        x = torch.sigmoid(x)  # Apply sigmoid to the entire output
+        # Make a copy and scale only the last column safely
+        x_scaled = x.clone()
+        x_scaled[:, -1] = x[:, -1] * self.N
+        return x_scaled
+    
+class ScaledTanh(nn.Module):
+    def __init__(self):
+        super(ScaledTanh, self,N).__init__()
+        self.N=N
+        
+    def forward(self, x):
+       
+        return (torch.tanh(x)+1)*self.N/2
+    
+class BoundedReLU(nn.Module):
+    def __init__(self, upper_bound):
+        super().__init__()
+        self.upper_bound = upper_bound
+
+    def forward(self, x):
+        return torch.clamp(F.relu(x), 0, self.upper_bound)
     
 class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend on the order of the agents
     """
@@ -35,16 +54,12 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
     num_moments: int
 
   
-    def initialize_weights(self): # To try with different wegiht initializations
-        for layer in self.decoder_net:
-            if isinstance(layer, nn.Linear):
-                #pass # default weight initialization (output values around 0)
-                # nn.init.xavier_uniform_(layer.weight, gain=nn.init.calculate_gain('sigmoid')) # didn´t work
-                # nn.init.zeros_(layer.bias)  # Optional: initialize biases to zero # didn´t work
-                #nn.init.xavier_uniform_(layer.weight)
-                #nn.init.kaiming_uniform_(layer.weight) # didn´t work
-                #nn.init.uniform_(layer.weight, a=-0.5, b=0.5)  # better
-                nn.init.trunc_normal_(layer.weight, mean=0.0, std=0.5)  ## may be the best with 4000 iterations
+    def initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                # Wider variance than Kaiming
+                nn.init.normal_(m.weight, mean=0.0, std=0.5)
+                nn.init.uniform_(m.bias, a=0.5, b=0.5)
 
     def __init__(self,n_users, n_stations, out_dim, lat_dims, layers):
         super(PermInvariantQNN, self).__init__()
@@ -55,21 +70,24 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
         nets = []
         input_dim = n_stations * 3 # number of features/columns of the state space (rate , station_id , rate_type)
         nets.append(nn.Linear(input_dim, lat_dims)) # lat_dims = number of neurons per layer
-        nets.append(nn.SiLU())
+        nets.append(nn.LeakyReLU(0.1))
         
         for i in range(layers):
             nets.append(nn.Linear(lat_dims, lat_dims))
-            #nets.append(nn.BatchNorm1d(lat_dims))  # Add normalization (didn´t work)
-            nets.append(nn.SiLU())
+            nets.append(nn.LayerNorm(lat_dims))
+            nets.append(nn.LeakyReLU(0.1))
             
         nets.append(nn.Linear(lat_dims, self.out_dim))
+        #nets.append(ScaledTanh(n_stations))
         self.decoder_net = nn.Sequential(*nets)
-        self.scaled_sigmoid = ScaledSigmoid(N=n_stations)
+        
         self.initialize_weights()
 
     def forward(self, input):
-        out_tensor = self.decoder_net(input)  # Output shape: (n_users, out_dim)
-        return out_tensor
+        x = self.decoder_net(input)  # Output shape: (n_users, out_dim)
+        x = torch.tanh(x)
+       
+        return (torch.tanh(x)+1)*self.n_stations/2
 
 
 class NashNN():
@@ -84,7 +102,7 @@ class NashNN():
     :param term_cost:    Terminal costs (estimated or otherwise)
     """
 
-    def __init__(self, n_users, n_stations, lr=2.5e-4, lat_dims= 128, c_cons=0.1, c2_cons=True, c3_pos=True, layers=4, weighted_adam=True):
+    def __init__(self, n_users, n_stations, lr=1e-4, lat_dims= 64, c_cons=0.1, c2_cons=True, c3_pos=True, layers=4, weighted_adam=True):
         # Simulation Parameters
         self.lr = lr
         self.n_users = n_users
@@ -147,10 +165,32 @@ class NashNN():
         :param states:    nm List of environmental state objects
         :return:          List of NashFittedValue objects representing the estimated parameters
         """
-        action_list = self.action_net.forward(input=states)   
-        action_list = torch.hstack([torch.abs(action_list[:, 0]).view(-1,1), action_list[:, 1].view(-1,1), torch.abs(action_list[:, 2]).view(-1,1), action_list[:, 3:]])
+        #print(states.shape)
+        if len(states.shape) > 2:
+            B, A, D = states.shape  # B = batch size (10), A = agents (3), D = 255
+            flat_states = states.view(B * A, D)  # Flatten to shape (30, 255)
 
-        return action_list
+            # Forward pass through action_net
+            action_list = self.action_net.forward(input=flat_states)
+
+            # Process the output
+            action_list = torch.hstack([
+                torch.abs(action_list[:, 0]).view(-1, 1),
+                action_list[:, 1].view(-1, 1),
+                torch.abs(action_list[:, 2]).view(-1, 1),
+                action_list[:, 3:]
+            ])
+
+            # Reshape back to (10, 3, -1)
+            action_list = action_list.view(B, A, -1)
+            return action_list
+        else:
+            
+            action_list = self.action_net.forward(input=states) 
+            action_list = torch.hstack([torch.abs(action_list[:, 0]).view(-1,1), action_list[:, 1].view(-1,1), torch.abs(action_list[:, 2]).view(-1,1), action_list[:, 3:]])
+
+            return action_list
+        
 
     # ---- Previously used for exploration -------------
     '''
@@ -220,6 +260,7 @@ class NashNN():
         c4_list = curAct[:, 3]
         mu_list = curAct[:, 4]
         
+        
         uNeg_list = self.matrix_slice(act_list.view(-1, self.n_users))
         muNeg_list = self.matrix_slice(mu_list.view(-1, self.n_users))
 
@@ -234,7 +275,7 @@ class NashNN():
         :param state_tuples:    List of a batch of transition tuples
         :return:                Total loss of batch
         """
-
+        
         cur_state_list = state_tuples[0]
         next_state_list = state_tuples[1]
         isLastState = state_tuples[2].view(-1)
@@ -250,7 +291,7 @@ class NashNN():
         c3_list = curAct[:, 2]
         c4_list = curAct[:, 3]
         mu_list = curAct[:, 4]
-
+        
 
         uNeg_list = self.matrix_slice(act_list.view(-1, self.n_users))
         muNeg_list = self.matrix_slice(mu_list.view(-1, self.n_users))
