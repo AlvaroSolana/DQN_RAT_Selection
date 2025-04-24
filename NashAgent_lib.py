@@ -8,7 +8,7 @@ from copy import deepcopy as dc
 
 device=torch.device("cpu")
 import torch.nn.functional as F
-
+'''
 class ScaledSigmoid(nn.Module):
     def __init__(self, N):
         super(ScaledSigmoid, self).__init__()
@@ -37,6 +37,7 @@ class BoundedReLU(nn.Module):
 
     def forward(self, x):
         return torch.clamp(F.relu(x), 0, self.upper_bound)
+'''
     
 class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend on the order of the agents
     """
@@ -53,13 +54,25 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
     block_size: int
     num_moments: int
 
-  
+         
+    '''
     def initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                # Wider variance than Kaiming
-                nn.init.normal_(m.weight, mean=0.0, std=0.5)
-                nn.init.uniform_(m.bias, a=0.5, b=0.5)
+                #nn.init.normal_(m.weight, mean=0.0, std=0.5)
+                #nn.init.uniform_(m.bias, a=0.5, b=0.5)
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.zeros_(m.bias)
+    '''
+    def initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                if m.out_features == self.out_dim:  # final layer
+                    nn.init.xavier_uniform_(m.weight, gain=5.0)
+                else:
+                    nn.init.xavier_uniform_(m.weight)
+                nn.init.zeros_(m.bias)
+
 
     def __init__(self,n_users, n_stations, out_dim, lat_dims, layers):
         super(PermInvariantQNN, self).__init__()
@@ -68,14 +81,20 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
         self.n_stations = n_stations
         self.out_dim = out_dim 
         nets = []
-        input_dim = n_stations * 3 # number of features/columns of the state space (rate , station_id , rate_type)
+        input_dim = n_stations #* 3 # number of features/columns of the state space (rate , station_id , rate_type)
         nets.append(nn.Linear(input_dim, lat_dims)) # lat_dims = number of neurons per layer
-        nets.append(nn.LeakyReLU(0.1))
-        
+        #nets.append(nn.LeakyReLU(0.1))
+        nets.append(nn.ReLU())
+        nets.append(nn.LayerNorm(lat_dims))
+
         for i in range(layers):
-            nets.append(nn.Linear(lat_dims, lat_dims))
-            nets.append(nn.LayerNorm(lat_dims))
-            nets.append(nn.LeakyReLU(0.1))
+            next_lat_dims = max(int(lat_dims // 2), 16)  # floor division and enforce a minimum size of 16
+            nets.append(nn.Linear(lat_dims, next_lat_dims))
+            nets.append(nn.LayerNorm(next_lat_dims))
+            #nets.append(nn.LeakyReLU(0.1))
+            nets.append(nn.ReLU())
+            lat_dims = next_lat_dims  # update for next loop
+
             
         nets.append(nn.Linear(lat_dims, self.out_dim))
         #nets.append(ScaledTanh(n_stations))
@@ -85,9 +104,11 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
 
     def forward(self, input):
         x = self.decoder_net(input)  # Output shape: (n_users, out_dim)
-        x = torch.tanh(x)
-       
-        return (torch.tanh(x)+1)*self.n_stations/2
+        #x = torch.tanh(x)
+        #return (torch.tanh(x)+1)/2
+        x[:, :-1] = torch.tanh(x[:, :-1]) # Advantage outputs [-1, 1]
+        x[:, -1] = torch.sigmoid(x[:, -1]) # Action output [0, 1]
+        return x
 
 
 class NashNN():
@@ -102,7 +123,7 @@ class NashNN():
     :param term_cost:    Terminal costs (estimated or otherwise)
     """
 
-    def __init__(self, n_users, n_stations, lr=1e-4, lat_dims= 64, c_cons=0.1, c2_cons=True, c3_pos=True, layers=4, weighted_adam=True):
+    def __init__(self, n_users, n_stations, lr=1e-4, lat_dims= 128, c_cons=0.1, c2_cons=True, c3_pos=True, layers=4, weighted_adam=True):
         # Simulation Parameters
         self.lr = lr
         self.n_users = n_users
@@ -185,7 +206,7 @@ class NashNN():
             action_list = action_list.view(B, A, -1)
             return action_list
         else:
-            
+        
             action_list = self.action_net.forward(input=states) 
             action_list = torch.hstack([torch.abs(action_list[:, 0]).view(-1,1), action_list[:, 1].view(-1,1), torch.abs(action_list[:, 2]).view(-1,1), action_list[:, 3:]])
 
@@ -249,7 +270,7 @@ class NashNN():
         reward_list = state_tuples[3].view(-1)
         act_list = state_tuples[4].view(-1)
 
-        curAct = self.predict_action(cur_state_list).detach()
+        curAct = self.predict_action(cur_state_list).detach().view(-1,5)
         curVal = self.predict_value(cur_state_list).view(-1) # Nash Value of Current state
         nextVal = self.predict_value(next_state_list, slow=True).detach().view(-1) # Nash Value of Next state
 
@@ -267,7 +288,13 @@ class NashNN():
         # Computes the Advantage Function using matrix operations
         A = - c1_list * (act_list-mu_list)**2 - c2_list * (act_list-mu_list) * torch.sum(uNeg_list - muNeg_list, dim=1) - c3_list * torch.sum((uNeg_list - muNeg_list)**2, dim=1) + c4_list * torch.sum((uNeg_list - muNeg_list), dim=1)
         
-        return torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)
+        # Add entropy regularization on action (mu)
+        base_loss = torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)
+        action_entropy = - (mu_list * torch.log(mu_list + 1e-8) + (1 - mu_list) * torch.log(1 - mu_list + 1e-8))
+        λ = 1e-1  # You can tune this
+        
+        return base_loss + λ * action_entropy.mean()
+        #return torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)
     
     def compute_action_Loss(self, state_tuples):
         """
@@ -282,7 +309,7 @@ class NashNN():
         reward_list = state_tuples[3].view(-1)
         act_list = state_tuples[4].view(-1)
 
-        curAct = self.predict_action(cur_state_list)
+        curAct = self.predict_action(cur_state_list).view(-1,5)
         curVal = self.predict_value(cur_state_list).detach().view(-1) # Nash Value of Current state
         nextVal = self.predict_value(next_state_list, slow=True).detach().view(-1) # Nash Value of Next state
         
@@ -296,5 +323,11 @@ class NashNN():
         uNeg_list = self.matrix_slice(act_list.view(-1, self.n_users))
         muNeg_list = self.matrix_slice(mu_list.view(-1, self.n_users))
         A = - c1_list * (act_list-mu_list)**2  - c2_list * (act_list-mu_list) * torch.sum(uNeg_list - muNeg_list, dim=1) - c3_list * torch.sum((uNeg_list - muNeg_list)**2, dim=1) + c4_list * torch.sum((uNeg_list - muNeg_list), dim=1)
-       
-        return torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)
+        
+        # Add entropy regularization on action (mu)
+        base_loss = torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)
+        action_entropy = - (mu_list * torch.log(mu_list + 1e-8) + (1 - mu_list) * torch.log(1 - mu_list + 1e-8))
+        λ = 1e-2  # You can tune this
+        
+        return base_loss + λ * action_entropy.mean()
+        #return torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)

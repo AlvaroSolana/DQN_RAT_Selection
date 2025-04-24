@@ -34,7 +34,8 @@ class State(ProtoState):
         Extract and normalize the state for a specific agent.
         :param idx: Index of the agent whose state is being extracted.
         """
-        normalized_rate = (self.rate[idx]-0)/(600-0)
+        agent_rate = self.rate[idx]
+        normalized_rate = torch.tensor([(rate - 0)/(600 - 0) if rate > 0 else rate for rate in agent_rate])
         return torch.cat([
             normalized_rate,
             self.station_id[idx],
@@ -84,8 +85,7 @@ class Multi_RAT_Network:
     self.last_reward = torch.zeros(self.n_users).to(device)
     self.total_reward = torch.zeros(self.n_users).to(device)
     #Reset time parameters
-    self.t = torch.tensor(0.0).to(device)
-    self.done = False   
+    self.iteration = 0
 
     self.ltesn_positions = []  # List to save LTE Serving Nodes positions
     self.aps_positions = []  # List to save LTE Serving Nodes positions
@@ -392,7 +392,7 @@ class Multi_RAT_Network:
     elif rssi_value >= -75:
         return 30
     else:
-        return 0
+        return -1
 
 
   def get_lte_rate(self,cqi_value):
@@ -418,9 +418,8 @@ class Multi_RAT_Network:
       throughput = 0
       distance_to_ap_list = []
       if rat == 0: # LTE user
-         cqi = self.users_cqi[user_id][station_id]
-         throughput = self.get_lte_rate(cqi) / shared_users
-
+        cqi = self.users_cqi[user_id][station_id]
+        throughput = self.get_lte_rate(cqi) / shared_users
       else: # if the user is connected to an AP
         inverse_rate_sum = 0
         distance_to_ap_list.append(math.sqrt((self.users_positions[user_id][0]-self.aps_positions[station_id][0])**2 +(self.users_positions[user_id][1]-self.aps_positions[station_id][1])**2))
@@ -484,7 +483,7 @@ class Multi_RAT_Network:
     # Transform NN output
     rats_chosen = [] # List of [RAT,node_ID] chosen by every user.
     for i in range(self.n_users):        
-        rat_choice = int(torch.round(actions[i])) # This will give us the index of the chosen station/node
+        rat_choice = int(torch.round(actions[i]*(self.n_stations-1))) # This will give us the index of the chosen station/node
         rat_id = 0 if rat_choice < self.n_ltesn else 1
         node_id = rat_choice - rat_id * self.n_ltesn
         rats_chosen.append([rat_id,node_id])
@@ -497,9 +496,7 @@ class Multi_RAT_Network:
         if current_rats[i] != new_rats[i]:
             self.rat_change[i] = 1
 
-        ''' 
-    # DEBUGGING BLOCK
-
+    '''     # DEBUGGING BLOCK
     # Check distance between AP chosen and user
     for i,user_pos in enumerate(self.users_positions):
         if new_rats[i] == 1: #If we have chosen an AP
@@ -510,16 +507,12 @@ class Multi_RAT_Network:
             if distance > 12 and self.iteration==1:
                 print("AP chosen OUT OF RANGE")
                 print(f"User position [x,y] = [{user_pos[0]:.3f}, {user_pos[1]:.3f}] Chosen AP position [x,y] = [{self.aps_positions[AP_id][0]:.3f}, {self.aps_positions[AP_id][1]:.3f}]")
-        
     '''
-
     # Update self.user_assignments
     self.user_assignments = rats_chosen
-
     # Compute Reward for each agent in this enviroment
     reward = self.r()
     self.last_reward = reward
-
     # Update state
     self.update_state()
     cur_state, _, _=self.get_state()
@@ -549,9 +542,8 @@ class Multi_RAT_Network:
   
   #-----debugging-------------
   def get_rat_chosen(self,actions,last_rats):
-    for action in actions:
-        action = torch.clamp(action, min=0, max=(self.n_stations-1))        
-        rat_choice = int(torch.round(action))
+    for action in actions:        
+        rat_choice = int(torch.round(action*(self.n_stations-1)))
         last_rats[rat_choice]+=1    
     return last_rats
   #--------------------------
