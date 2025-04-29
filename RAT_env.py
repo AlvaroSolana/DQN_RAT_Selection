@@ -311,7 +311,7 @@ class Multi_RAT_Network:
         rat, node_id = assignment
         # Determine the global station index (LTE stations first, then Wi-Fi APs)
         global_station_idx = node_id if rat == 0 else node_id + self.n_ltesn
-        self.station_id[user_idx, global_station_idx] = 1
+        self.station_id[int(user_idx),int(global_station_idx)] = 1
 
 
   def update_state(self):
@@ -418,7 +418,7 @@ class Multi_RAT_Network:
       throughput = 0
       distance_to_ap_list = []
       if rat == 0: # LTE user
-        cqi = self.users_cqi[user_id][station_id]
+        cqi = self.users_cqi[int(user_id)][int(station_id)]
         throughput = self.get_lte_rate(cqi) / shared_users
       else: # if the user is connected to an AP
         inverse_rate_sum = 0
@@ -482,8 +482,7 @@ class Multi_RAT_Network:
     last_state, _, _ =self.get_state()
     # Transform NN output
     rats_chosen = [] # List of [RAT,node_ID] chosen by every user.
-    for i in range(self.n_users):        
-        rat_choice = int(torch.round(actions[i]*(self.n_stations-1))) # This will give us the index of the chosen station/node
+    for rat_choice in actions:        
         rat_id = 0 if rat_choice < self.n_ltesn else 1
         node_id = rat_choice - rat_id * self.n_ltesn
         rats_chosen.append([rat_id,node_id])
@@ -543,8 +542,7 @@ class Multi_RAT_Network:
   #-----debugging-------------
   def get_rat_chosen(self,actions,last_rats):
     for action in actions:        
-        rat_choice = int(torch.round(action*(self.n_stations-1)))
-        last_rats[rat_choice]+=1    
+        last_rats[action]+=1    
     return last_rats
   #--------------------------
 

@@ -88,7 +88,7 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
         nets.append(nn.LayerNorm(lat_dims))
 
         for i in range(layers):
-            next_lat_dims = max(int(lat_dims // 2), 16)  # floor division and enforce a minimum size of 16
+            next_lat_dims = max(int(lat_dims // 2), out_dim)  # floor division and enforce a minimum size of 16
             nets.append(nn.Linear(lat_dims, next_lat_dims))
             nets.append(nn.LayerNorm(next_lat_dims))
             #nets.append(nn.LeakyReLU(0.1))
@@ -104,10 +104,6 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
 
     def forward(self, input):
         x = self.decoder_net(input)  # Output shape: (n_users, out_dim)
-        #x = torch.tanh(x)
-        #return (torch.tanh(x)+1)/2
-        x[:, :-1] = torch.tanh(x[:, :-1]) # Advantage outputs [-1, 1]
-        x[:, -1] = torch.sigmoid(x[:, -1]) # Action output [0, 1]
         return x
 
 
@@ -123,12 +119,12 @@ class NashNN():
     :param term_cost:    Terminal costs (estimated or otherwise)
     """
 
-    def __init__(self, n_users, n_stations, lr=1e-4, lat_dims= 128, c_cons=0.1, c2_cons=True, c3_pos=True, layers=4, weighted_adam=True):
+    def __init__(self, n_users, n_stations, lr=1e-4, lat_dims= 512, c_cons=0.1, c2_cons=True, c3_pos=True, layers=4, weighted_adam=True):
         # Simulation Parameters
         self.lr = lr
         self.n_users = n_users
         self.n_stations = n_stations
-        self.output_dim = 4 + 1
+        self.output_dim = 4 + n_stations
 
         # Initialize Networks
         self.action_net = PermInvariantQNN(
@@ -213,27 +209,6 @@ class NashNN():
             return action_list
         
 
-    # ---- Previously used for exploration -------------
-    '''
-    def get_random_action(self,nash_a ,state):
-        """
-        Selects random action different from nash_action
-        """
-        random_action = torch.zeros_like(nash_a, dtype=torch.long)
-        rates = state[:,:20]
-        for i in range(self.n_users):
-            agent_rate = rates[i,:]
-            available_stations = torch.nonzero(agent_rate, as_tuple=True)[0]
-            original_action = nash_a[i].item()  # Get the original action
-            valid_choices = available_stations[available_stations != original_action] # Exclude the original action
-            if len(valid_choices) > 0:
-                action_chosen = random.choice(valid_choices.tolist())
-                random_action[i] = action_chosen
-            else:
-                random_action[i] = original_action  # If no alternative, keep the original action
-        return random_action
-    '''
-
     def update_slow(self):
         self.slow_val_net.load_state_dict(dc(self.value_net.state_dict()))
         # Idea to improve results (didn´t work)
@@ -269,8 +244,7 @@ class NashNN():
         isLastState = state_tuples[2].view(-1)
         reward_list = state_tuples[3].view(-1)
         act_list = state_tuples[4].view(-1)
-
-        curAct = self.predict_action(cur_state_list).detach().view(-1,5)
+        curAct = self.predict_action(cur_state_list).detach().view(-1,89)
         curVal = self.predict_value(cur_state_list).view(-1) # Nash Value of Current state
         nextVal = self.predict_value(next_state_list, slow=True).detach().view(-1) # Nash Value of Next state
 
@@ -279,7 +253,9 @@ class NashNN():
         c2_list = curAct[:, 1]
         c3_list = curAct[:, 2]
         c4_list = curAct[:, 3]
-        mu_list = curAct[:, 4]
+        q_values = curAct[:, 4:]
+        mu_list,_ = torch.max(q_values,dim=1)
+           
         
         
         uNeg_list = self.matrix_slice(act_list.view(-1, self.n_users))
@@ -290,10 +266,10 @@ class NashNN():
         
         # Add entropy regularization on action (mu)
         base_loss = torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)
-        action_entropy = - (mu_list * torch.log(mu_list + 1e-8) + (1 - mu_list) * torch.log(1 - mu_list + 1e-8))
-        λ = 1e-1  # You can tune this
+        #action_entropy = - (mu_list * torch.log(mu_list + 1e-8) + (1 - mu_list) * torch.log(1 - mu_list + 1e-8))
+        #λ = 1e-1  # You can tune this
         
-        return base_loss + λ * action_entropy.mean()
+        return base_loss #+ λ * action_entropy.mean()
         #return torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)
     
     def compute_action_Loss(self, state_tuples):
@@ -309,7 +285,7 @@ class NashNN():
         reward_list = state_tuples[3].view(-1)
         act_list = state_tuples[4].view(-1)
 
-        curAct = self.predict_action(cur_state_list).view(-1,5)
+        curAct = self.predict_action(cur_state_list).view(-1,89)
         curVal = self.predict_value(cur_state_list).detach().view(-1) # Nash Value of Current state
         nextVal = self.predict_value(next_state_list, slow=True).detach().view(-1) # Nash Value of Next state
         
@@ -317,8 +293,8 @@ class NashNN():
         c2_list = curAct[:, 1]
         c3_list = curAct[:, 2]
         c4_list = curAct[:, 3]
-        mu_list = curAct[:, 4]
-        
+        q_values = curAct[:, 4:]
+        mu_list, _ = torch.max(q_values,dim=1)
 
         uNeg_list = self.matrix_slice(act_list.view(-1, self.n_users))
         muNeg_list = self.matrix_slice(mu_list.view(-1, self.n_users))
@@ -326,8 +302,32 @@ class NashNN():
         
         # Add entropy regularization on action (mu)
         base_loss = torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)
-        action_entropy = - (mu_list * torch.log(mu_list + 1e-8) + (1 - mu_list) * torch.log(1 - mu_list + 1e-8))
-        λ = 1e-2  # You can tune this
+        #action_entropy = - (mu_list * torch.log(mu_list + 1e-8) + (1 - mu_list) * torch.log(1 - mu_list + 1e-8))
+        #λ = 1e-2  # You can tune this
         
-        return base_loss + λ * action_entropy.mean()
+        return base_loss #+ λ * action_entropy.mean()
         #return torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)
+
+
+
+
+    # ---- Previously used for exploration -------------
+    '''
+    def get_random_action(self,nash_a ,state):
+        """
+        Selects random action different from nash_action
+        """
+        random_action = torch.zeros_like(nash_a, dtype=torch.long)
+        rates = state[:,:20]
+        for i in range(self.n_users):
+            agent_rate = rates[i,:]
+            available_stations = torch.nonzero(agent_rate, as_tuple=True)[0]
+            original_action = nash_a[i].item()  # Get the original action
+            valid_choices = available_stations[available_stations != original_action] # Exclude the original action
+            if len(valid_choices) > 0:
+                action_chosen = random.choice(valid_choices.tolist())
+                random_action[i] = action_chosen
+            else:
+                random_action[i] = original_action  # If no alternative, keep the original action
+        return random_action
+    '''
