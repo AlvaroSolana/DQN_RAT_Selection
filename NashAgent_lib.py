@@ -55,7 +55,7 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
     num_moments: int
 
          
-    '''
+    '''     
     def initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
@@ -88,7 +88,7 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
         nets.append(nn.LayerNorm(lat_dims))
 
         for i in range(layers):
-            next_lat_dims = max(int(lat_dims // 2), out_dim)  # floor division and enforce a minimum size of 16
+            next_lat_dims = max(int(lat_dims // 2), out_dim)  # floor division and enforce a minimum size of out_dim
             nets.append(nn.Linear(lat_dims, next_lat_dims))
             nets.append(nn.LayerNorm(next_lat_dims))
             #nets.append(nn.LeakyReLU(0.1))
@@ -211,7 +211,6 @@ class NashNN():
 
     def update_slow(self):
         self.slow_val_net.load_state_dict(dc(self.value_net.state_dict()))
-        # Idea to improve results (didn´t work)
         '''
         tau = 0.05
         for target_param, param in zip(self.slow_val_net.parameters(), self.value_net.parameters()):
@@ -243,26 +242,27 @@ class NashNN():
         next_state_list = state_tuples[1]
         isLastState = state_tuples[2].view(-1)
         reward_list = state_tuples[3].view(-1)
-        act_list = state_tuples[4].view(-1)
-        curAct = self.predict_action(cur_state_list).detach().view(-1,89)
+        act_list = state_tuples[4]
+        q_value_selected = act_list[:, :, 0].reshape(-1)
+        index_selected = act_list[:, :, 1].long().reshape(-1)
+
+        curAct = self.predict_action(cur_state_list).detach().view(-1,self.output_dim)
         curVal = self.predict_value(cur_state_list).view(-1) # Nash Value of Current state
         nextVal = self.predict_value(next_state_list, slow=True).detach().view(-1) # Nash Value of Next state
 
-        # Create Lists for predicted Values
         c1_list = curAct[:, 0]
         c2_list = curAct[:, 1]
         c3_list = curAct[:, 2]
         c4_list = curAct[:, 3]
         q_values = curAct[:, 4:]
-        mu_list,_ = torch.max(q_values,dim=1)
-           
-        
-        
-        uNeg_list = self.matrix_slice(act_list.view(-1, self.n_users))
-        muNeg_list = self.matrix_slice(mu_list.view(-1, self.n_users))
+        #mu_list, _ = torch.max(q_values,dim=1)
+        mu_q_values = q_values.gather(1, index_selected.unsqueeze(1)).squeeze(1)
+
+        uNeg_list = self.matrix_slice(q_value_selected.view(-1, self.n_users))
+        muNeg_list = self.matrix_slice(mu_q_values.view(-1, self.n_users))
 
         # Computes the Advantage Function using matrix operations
-        A = - c1_list * (act_list-mu_list)**2 - c2_list * (act_list-mu_list) * torch.sum(uNeg_list - muNeg_list, dim=1) - c3_list * torch.sum((uNeg_list - muNeg_list)**2, dim=1) + c4_list * torch.sum((uNeg_list - muNeg_list), dim=1)
+        A = - c1_list * (q_value_selected-mu_q_values)**2 - c2_list * (q_value_selected-mu_q_values) * torch.sum(uNeg_list - muNeg_list, dim=1) - c3_list * torch.sum((uNeg_list - muNeg_list)**2, dim=1) + c4_list * torch.sum((uNeg_list - muNeg_list), dim=1)
         
         # Add entropy regularization on action (mu)
         base_loss = torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)
@@ -283,9 +283,11 @@ class NashNN():
         next_state_list = state_tuples[1]
         isLastState = state_tuples[2].view(-1)
         reward_list = state_tuples[3].view(-1)
-        act_list = state_tuples[4].view(-1)
+        act_list = state_tuples[4] 
+        q_value_selected = act_list[:, :, 0].reshape(-1)
+        index_selected = act_list[:, :, 1].long().reshape(-1)
 
-        curAct = self.predict_action(cur_state_list).view(-1,89)
+        curAct = self.predict_action(cur_state_list).view(-1,self.output_dim)
         curVal = self.predict_value(cur_state_list).detach().view(-1) # Nash Value of Current state
         nextVal = self.predict_value(next_state_list, slow=True).detach().view(-1) # Nash Value of Next state
         
@@ -294,11 +296,12 @@ class NashNN():
         c3_list = curAct[:, 2]
         c4_list = curAct[:, 3]
         q_values = curAct[:, 4:]
-        mu_list, _ = torch.max(q_values,dim=1)
+        #mu_list, _ = torch.max(q_values,dim=1)
+        mu_q_values = q_values.gather(1, index_selected.unsqueeze(1)).squeeze(1)
 
-        uNeg_list = self.matrix_slice(act_list.view(-1, self.n_users))
-        muNeg_list = self.matrix_slice(mu_list.view(-1, self.n_users))
-        A = - c1_list * (act_list-mu_list)**2  - c2_list * (act_list-mu_list) * torch.sum(uNeg_list - muNeg_list, dim=1) - c3_list * torch.sum((uNeg_list - muNeg_list)**2, dim=1) + c4_list * torch.sum((uNeg_list - muNeg_list), dim=1)
+        uNeg_list = self.matrix_slice(q_value_selected.view(-1, self.n_users))
+        muNeg_list = self.matrix_slice(mu_q_values.view(-1, self.n_users))
+        A = - c1_list * (q_value_selected-mu_q_values)**2  - c2_list * (q_value_selected-mu_q_values) * torch.sum(uNeg_list - muNeg_list, dim=1) - c3_list * torch.sum((uNeg_list - muNeg_list)**2, dim=1) + c4_list * torch.sum((uNeg_list - muNeg_list), dim=1)
         
         # Add entropy regularization on action (mu)
         base_loss = torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)

@@ -73,7 +73,6 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
         rand_action_flag = np.random.random() < eps # Choose exploration or exploitation
         if rand_action_flag:
             nn_output = nash_agent.predict_action(state[:,:rat_env.n_stations]).detach()
-            nash_param = nn_output[:,:4]
             q_values = nn_output[:,4:]
             a = torch.randint(0, rat_env.n_stations - 1 ,(n_agents,))
             #------------- FOR DEBUGGING--------------
@@ -89,7 +88,6 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
             # --------------------------------------- 
         else: # choose best action (nash action)
             nn_output = nash_agent.predict_action(state[:,:rat_env.n_stations]).detach()
-            nash_param = nn_output[:,:4]
             q_values = nn_output[:,4:]
             a = torch.argmax(q_values, dim=1)
         #---------------Debugging--------------------------
@@ -112,7 +110,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
         #---------------------------------- 
         selected_q_values = q_values.gather(1, a.unsqueeze(1)).to(device)
         # Take an step with the chosen action
-        current_state,_, new_state, lr = rat_env.step(a)
+        current_state,_, new_state, lr = rat_env.step(a.detach())
         cur_s = expand_list(current_state,n_agents)
         next_s = expand_list(new_state, n_agents)
         negative_reward = torch.any(torch.eq(lr, -1))
@@ -129,7 +127,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
         if rat_env.iteration == (max_steps-1) or negative_reward:
             isLastState = torch.ones(n_agents,dtype=torch.float32).to(device)
             # -------- For debugging --------
-            episode_reward = episode_reward/(rat_env.iteration+1)
+            episode_reward = episode_reward#/(rat_env.iteration+1)
             episode_rewards.append(episode_reward)
             episode_reward = np.zeros(n_agents)
             #---------------------------------- 
@@ -142,14 +140,13 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
     
         # Add step results to the buffer
         rewards = lr.detach()
-        action = selected_q_values.detach()
-        cur_s = cur_s.detach()
+        # Both should be 1D tensors of shape [batch]
+        combined_action = torch.stack([selected_q_values.view(-1), a], dim=1)  # shape [3, 2]
         next_s = next_s.detach()
-        replay_buffer.add(cur_s[:,:rat_env.n_stations], next_s[:,:rat_env.n_stations], isLastState, rewards, action)
+        replay_buffer.add(cur_s[:, :rat_env.n_stations], next_s[:, :rat_env.n_stations], isLastState, rewards, combined_action)
         if torch.isnan(q_values).any() or torch.isinf(q_values).any() or torch.isnan(rewards).any()or torch.isinf(rewards).any():
-            print("Q values or rewards have NaNs or Infs!")
+            print("Q values or rewards have NaNs or Infs!") # used before to debug
 
-        
         learning_starts = buffer_size
         if global_step > learning_starts: # Buffer is full, we can start learning
             if global_step % 10 == 0:
@@ -169,10 +166,6 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
                 nash_agent.value_net.eval()
                 nash_agent.optimizer_DQN.zero_grad()
                 loss = nash_agent.compute_action_Loss(replay_sample)
-                if torch.isnan(loss):
-                    print("Loss has NaNs!")
-                    exit()
-
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(nash_agent.action_net.parameters(), max_norm=1.0)
                 nash_agent.optimizer_DQN.step()
