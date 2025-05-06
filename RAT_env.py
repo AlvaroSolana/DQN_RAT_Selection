@@ -421,19 +421,20 @@ class Multi_RAT_Network:
         cqi = self.users_cqi[int(user_id)][int(station_id)]
         throughput = self.get_lte_rate(cqi) / shared_users
       else: # if the user is connected to an AP
-        inverse_rate_sum = 0
         distance_to_ap_list.append(math.sqrt((self.users_positions[user_id][0]-self.aps_positions[station_id][0])**2 +(self.users_positions[user_id][1]-self.aps_positions[station_id][1])**2))
-        for i in range(self.n_users):
-            if self.user_assignments[i] == self.user_assignments[user_id]:
-              rssi = self.users_rssi[i][station_id]
-              if rssi != -100:
-                rate = self.get_wifi_rate(rssi)
-                if rate > 0 :    
-                    inverse_rate_sum += 1/rate
-        if inverse_rate_sum == 0:
+        rssi = self.users_rssi[user_id][station_id]
+        if rssi == -100: # If the user is not connected to any AP, we set the throughput to 0
             throughput = 0
         else:
-            throughput = 1/inverse_rate_sum
+            inverse_rate_sum = 0
+            for i in range(self.n_users):
+                if self.user_assignments[i] == self.user_assignments[user_id]:
+                    if rssi != -100:
+                        rate = self.get_wifi_rate(rssi)
+                    if rate > 0 :    
+                        inverse_rate_sum += 1/rate
+            else:
+                throughput = 1/inverse_rate_sum
 
       return throughput
               
@@ -486,7 +487,6 @@ class Multi_RAT_Network:
         rat_id = 0 if rat_choice < self.n_ltesn else 1
         node_id = rat_choice - rat_id * self.n_ltesn
         rats_chosen.append([rat_id,node_id])
-
     # Udpadate self.RAT_change
     current_rats = [rat[0] for rat in self.user_assignments]
     new_rats = [action[0] for action in rats_chosen]
@@ -510,8 +510,10 @@ class Multi_RAT_Network:
     # Update self.user_assignments
     self.user_assignments = rats_chosen
     # Compute Reward for each agent in this enviroment
+
     reward = self.r()
     self.last_reward = reward
+
     # Update state
     self.update_state()
     cur_state, _, _=self.get_state()

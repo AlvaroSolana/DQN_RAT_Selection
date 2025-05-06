@@ -63,6 +63,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
     ep = 1
     min_ep = 0.05
     eps_list = []
+    episode_length = []
     # ---------- Main simulation Block -----------------
     for global_step in range(0, sim_steps):
         eps = max(ep-(ep-min_ep)*global_step/sim_steps/exploration_fraction, min_ep) #exploration rate
@@ -130,6 +131,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
             episode_reward = episode_reward#/(rat_env.iteration+1)
             episode_rewards.append(episode_reward)
             episode_reward = np.zeros(n_agents)
+            episode_length.append(rat_env.iteration+1)
             #---------------------------------- 
             rat_env.reset()
 
@@ -235,7 +237,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
     print("Weights saved to disk")
     # ---------------------------------------------
 
-    return nash_agent, sum_loss, last_rats, episode_rewards, best_actions,eps_list
+    return nash_agent, sum_loss, last_rats, episode_rewards, best_actions,eps_list,episode_length
 
 
 ## Previously used code that may be useful in the future
