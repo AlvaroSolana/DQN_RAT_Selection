@@ -56,8 +56,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
     #------------------------
 
     #os.makedirs(os.path.dirname(path), exist_ok=True)
-    if nash_agent is None:
-        nash_agent = NashNN(n_users=n_agents, n_stations = rat_env.n_stations)
+    nash_agent = NashNN(n_users=n_agents, n_stations = rat_env.n_stations)
     replay_buffer = ExperienceReplay(buffer_size)
     sum_loss = [] #list to store episode loss
     ep = 1
@@ -70,53 +69,25 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
         eps_list.append(eps)
         current_state, lr, _ = rat_env.get_state()
         state = expand_list(current_state,n_agents)
-        
+
         rand_action_flag = np.random.random() < eps # Choose exploration or exploitation
         if rand_action_flag:
-            nn_output = nash_agent.predict_action(state[:,:rat_env.n_stations]).detach()
-            q_values = nn_output[:,4:]
-            a = torch.randint(0, rat_env.n_stations - 1 ,(n_agents,))
-            #------------- FOR DEBUGGING--------------
-            lte_select = False
-            ap_select = False
-            for action in a:  
-                if  action < rat_env.n_ltesn:
-                    rand_lte_chosen += 1
-                    lte_select = True
-                else:
-                    rand_aps_chosen += 1
-                    ap_select = True               
-            # --------------------------------------- 
+            actions = torch.randint(0, rat_env.n_stations - 1 ,(n_agents,))
         else: # choose best action (nash action)
-            nn_output = nash_agent.predict_action(state[:,:rat_env.n_stations]).detach()
-            q_values = nn_output[:,4:]
-            a = torch.argmax(q_values, dim=1)
-        #---------------Debugging--------------------------
-            rat_env.get_rat_chosen(a,best_actions)
-            lte_select = False
-            ap_select = False
-            for action in a:  
-                if action < rat_env.n_ltesn:
-                    best_lte_chosen += 1
-                    lte_select = True
-                else:
-                    best_aps_chosen += 1
-                    ap_select = True               
-        if ap_select:
-            ap_step+=1
-        if lte_select:
-            lte_step+=1
-
-        last_rats = rat_env.get_rat_chosen(a,last_rats)
-        #---------------------------------- 
-        selected_q_values = q_values.gather(1, a.unsqueeze(1)).to(device)
+            q_values = nash_agent.predict_action(state[:,:rat_env.n_stations]).detach()
+            actions = torch.argmax(q_values, dim=1)
+            best_actions = rat_env.get_rat_chosen(actions,best_actions) # For visualization
+        
+        last_rats = rat_env.get_rat_chosen(actions,last_rats) # For visualization
+        
         # Take an step with the chosen action
-        current_state,_, new_state, lr = rat_env.step(a.detach())
+        current_state,_, new_state, lr = rat_env.step(actions.detach())
         cur_s = expand_list(current_state,n_agents)
         next_s = expand_list(new_state, n_agents)
-        negative_reward = torch.any(torch.eq(lr, -1))
+        negative_reward = torch.any(torch.eq(lr, -0.1))
+
         # -------- For debugging --------
-        negative_reward_count += torch.sum(torch.eq(lr, -1)).item()
+        negative_reward_count += torch.sum(torch.eq(lr, -0.1)).item()
         if negative_reward:
             if rand_action_flag:
                 rand_disconnected+=1
@@ -124,17 +95,16 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
                 best_disconnected+=1
         reward_values.append(lr.tolist())
         episode_reward += lr.numpy()
-        #----------------------------------   
+        #---------------------------------- 
+        #   
         if rat_env.iteration == (max_steps-1) or negative_reward:
             isLastState = torch.ones(n_agents,dtype=torch.float32).to(device)
             # -------- For debugging --------
-            episode_reward = episode_reward#/(rat_env.iteration+1)
             episode_rewards.append(episode_reward)
             episode_reward = np.zeros(n_agents)
             episode_length.append(rat_env.iteration+1)
             #---------------------------------- 
             rat_env.reset()
-
         else:
             isLastState = torch.zeros(n_agents,dtype=torch.float32).to(device)
             rat_env.iteration = rat_env.iteration + 1
@@ -142,50 +112,39 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
     
         # Add step results to the buffer
         rewards = lr.detach()
-        # Both should be 1D tensors of shape [batch]
-        combined_action = torch.stack([selected_q_values.view(-1), a], dim=1)  # shape [3, 2]
         next_s = next_s.detach()
-        replay_buffer.add(cur_s[:, :rat_env.n_stations], next_s[:, :rat_env.n_stations], isLastState, rewards, combined_action)
-        if torch.isnan(q_values).any() or torch.isinf(q_values).any() or torch.isnan(rewards).any()or torch.isinf(rewards).any():
-            print("Q values or rewards have NaNs or Infs!") # used before to debug
+        replay_buffer.add(cur_s[:, :rat_env.n_stations], next_s[:, :rat_env.n_stations], isLastState, rewards, actions)
 
         learning_starts = buffer_size
         if global_step > learning_starts: # Buffer is full, we can start learning
             if global_step % 10 == 0:
-                replay_sample = replay_buffer.sample(128)
-                # Train Value Network
-                nash_agent.value_net.train()
-                nash_agent.action_net.eval()
-                nash_agent.optimizer_value.zero_grad()
-                torch.autograd.set_detect_anomaly(True)
-                vloss = nash_agent.compute_value_Loss(replay_sample)
-                vloss.backward()
-                torch.nn.utils.clip_grad_norm_(nash_agent.value_net.parameters(), max_norm=1.0)
-                nash_agent.optimizer_value.step()
-
-                # Train action network
-                nash_agent.action_net.train()
-                nash_agent.value_net.eval()
+                gamma = 0.99
+                buffer_sample = replay_buffer.sample(128)
+                current_state_list, next_state_list, isLastState_list, rewards_list, act_list = buffer_sample                
+                with torch.no_grad():
+                    target_max,_ = nash_agent.predict_value(next_state_list).max(dim=2)
+                    td_target = rewards_list.flatten() + gamma * target_max.flatten() * (1 - isLastState_list.flatten())
+                act_list = act_list.long()
+                old_value = nash_agent.predict_action(current_state_list).gather(2, act_list.unsqueeze(-1)).squeeze(-1).flatten()
+                loss = F.mse_loss(td_target,old_value)
+                    
+                # Optimization step
                 nash_agent.optimizer_DQN.zero_grad()
-                loss = nash_agent.compute_action_Loss(replay_sample)
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(nash_agent.action_net.parameters(), max_norm=1.0)
                 nash_agent.optimizer_DQN.step()
-                
-                # Return networks to train mode
-                nash_agent.value_net.train()  
-                nash_agent.action_net.train()
+
+                sum_loss.append(loss.item()) # store loss for visualization
             
-                sum_loss.append(loss.item())
-            
-            # Update slow_network
-            if global_step % 50 == 0:
-                last_loss = sum_loss[-1]
-                if last_loss < 1e4:
-                    nash_agent.update_slow()
+            # Update target network
+            if global_step % 500 == 0: # If I get it back to 100 I can obtain much more variability
+                tau = 1
+                for target_network_param, q_network_param in zip(nash_agent.value_net.parameters(), nash_agent.action_net.parameters()):
+                    target_network_param.data.copy_(
+                        tau * q_network_param.data + (1.0 - tau) * target_network_param.data
+                    )
 
             if  global_step %(sim_steps/10) == 0:
-                print(f"Iteration {global_step} A_Loss: {loss} | V_Loss: {vloss}")
+                print(f"Iteration {global_step} A_Loss: {loss}")
     
             # Save weights
             save_flag = not (global_step+1) % (sim_steps/5)
@@ -194,8 +153,47 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
                             AN_file_name + "_" + str(global_step) + ".pt")
                 torch.save(nash_agent.value_net.state_dict(), VN_file_name + "_" + str(global_step) + ".pt")
                 print(f"Weights saved to disk (Checkpoint)")           
-            '''
+
+    # ------------For visualization-------------
+    import csv
+    print("csv imported")    
+    with open('rewards.csv', 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["step"] + [f"reward_{i}" for i in range(1, rat_env.n_users +1 )])
+        for i, reward in enumerate(reward_values):
+            writer.writerow([i] + reward)
+
+    print("Saving final weights to disk")
+    torch.save(nash_agent.action_net.state_dict(), AN_file_name + ".pt")
+    torch.save(nash_agent.value_net.state_dict(), VN_file_name + ".pt")
+    print("Weights saved to disk")
+    # ---------------------------------------------
+
+    return nash_agent, sum_loss, last_rats, episode_rewards, best_actions,eps_list,episode_length
+
+
+## Previously used code that may be useful in the future
+
+'''
+
+
             # -------- For debugging --------
+            # This was under choosing actions (both random and best)
+                    lte_select = False
+                ap_select = False
+                for action in actions:  
+                    if action < rat_env.n_ltesn:
+                        best_lte_chosen += 1
+                        lte_select = True
+                    else:
+                        best_aps_chosen += 1
+                        ap_select = True               
+            if ap_select:
+                ap_step+=1
+            if lte_select:
+                lte_step+=1
+            
+            # This was at the end of the loop (after the step)
             if (global_step%print_idx == 0) or global_step==(sim_steps-1):
                 aps_chosen = best_aps_chosen + rand_aps_chosen
                 lte_chosen = best_lte_chosen + rand_lte_chosen
@@ -219,30 +217,8 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
                 print("-----------------------------------------------------------------")
 
                 rand_aps_chosen, rand_lte_chosen, best_aps_chosen, best_lte_chosen, best_disconnected, rand_disconnected, step_counter, ap_step, lte_step,negative_reward_count = [0] * 10
-            '''
+            
             # --------------------------------------
-
-    # ------------For visualization-------------
-    import csv
-    print("csv imported")    
-    with open('rewards.csv', 'w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(["step"] + [f"reward_{i}" for i in range(1, rat_env.n_users +1 )])
-        for i, reward in enumerate(reward_values):
-            writer.writerow([i] + reward)
-
-    print("Saving final weights to disk")
-    torch.save(nash_agent.action_net.state_dict(), AN_file_name + ".pt")
-    torch.save(nash_agent.value_net.state_dict(), VN_file_name + ".pt")
-    print("Weights saved to disk")
-    # ---------------------------------------------
-
-    return nash_agent, sum_loss, last_rats, episode_rewards, best_actions,eps_list,episode_length
-
-
-## Previously used code that may be useful in the future
-
-'''
 
             best_action_net = None
             best_value_net = None

@@ -464,7 +464,7 @@ class Multi_RAT_Network:
             reward = norm_thr[i]
 
         else: # User disconnected
-            reward = -1
+            reward = -0.1
         
         users_reward.append(reward)
     return torch.tensor(users_reward, dtype=torch.float)

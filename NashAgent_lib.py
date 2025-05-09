@@ -55,14 +55,14 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
     num_moments: int
 
          
-    '''     
+        
     def initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                #nn.init.normal_(m.weight, mean=0.0, std=0.5)
-                #nn.init.uniform_(m.bias, a=0.5, b=0.5)
-                nn.init.xavier_uniform_(m.weight)
-                nn.init.zeros_(m.bias)
+                nn.init.normal_(m.weight, mean=0.0, std=0.5)
+                nn.init.uniform_(m.bias, a=0.5, b=0.5)
+                #nn.init.xavier_uniform_(m.weight)
+                #nn.init.zeros_(m.bias)
     '''
     def initialize_weights(self):
         for m in self.modules():
@@ -72,7 +72,7 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
                 else:
                     nn.init.xavier_uniform_(m.weight)
                 nn.init.zeros_(m.bias)
-
+    '''
 
     def __init__(self,n_users, n_stations, out_dim, lat_dims, layers):
         super(PermInvariantQNN, self).__init__()
@@ -119,20 +119,20 @@ class NashNN():
     :param term_cost:    Terminal costs (estimated or otherwise)
     """
 
-    def __init__(self, n_users, n_stations, lr=1e-4, lat_dims= 512, c_cons=0.1, c2_cons=True, c3_pos=True, layers=4, weighted_adam=True):
+    def __init__(self, n_users, n_stations, lr=1e-4, lat_dims= 512, c_cons=0.1, c2_cons=True, c3_pos=True, layers=1, weighted_adam=True):
         # Simulation Parameters
         self.lr = lr
         self.n_users = n_users
         self.n_stations = n_stations
-        self.output_dim = 4 + n_stations
+        self.output_dim = n_stations    
 
         # Initialize Networks
         self.action_net = PermInvariantQNN(
             n_users = self.n_users, n_stations = self.n_stations, out_dim=self.output_dim, lat_dims=lat_dims, layers=layers)
         self.value_net = PermInvariantQNN(
-            n_users = self.n_users, n_stations = self.n_stations, out_dim=1, lat_dims=lat_dims, layers=layers)
-        self.slow_val_net=PermInvariantQNN(
-            n_users = self.n_users, n_stations = self.n_stations, out_dim=1, lat_dims=lat_dims, layers=layers)
+            n_users = self.n_users, n_stations = self.n_stations, out_dim=self.output_dim, lat_dims=lat_dims, layers=layers)
+        #self.slow_val_net=PermInvariantQNN(
+         #   n_users = self.n_users, n_stations = self.n_stations, out_dim=1, lat_dims=lat_dims, layers=layers)
                 
         # Define optimizer used (SGD, etc)
         if weighted_adam:
@@ -156,26 +156,6 @@ class NashNN():
         self.c2_cons = c2_cons
         self.c3_pos = c3_pos
 
-
-    def matrix_slice(self, X):
-        """
-        Returns a matrix where each row in X is replicated N number of times where N
-        is the number of total agents. Then the value of the j'th element of the 
-        (i*N + j)'th row is removed. Effectively creating
-        a stacked version of the u^(-1) or mu(-1) for batched inputs.
-        :param X:    Matrix of actions/nash actions where each row corresponds to one transition from a batch input
-        :return:     Matrix of u^(-1) or mu(-1) as described above
-        """
-        num_entries = len(X)
-        arr = X.repeat_interleave(self.n_users, dim = 0)
-        ids = torch.arange(self.n_users).clone().detach().tile(num_entries)
-        #ids = torch.tensor(torch.arange(self.n_users)).tile(num_entries) #previous version (didn´t work)
-        mask = torch.ones_like(arr).scatter_(1, ids.unsqueeze(1), 0.)
-        res = arr[mask.bool()].view(-1, self.n_users - 1)
-        
-        return res
-
-
     def predict_action(self, states):
         """
         Predicts the parameters of the advantage function of a batch of environmental states
@@ -186,51 +166,48 @@ class NashNN():
         if len(states.shape) > 2:
             B, A, D = states.shape  # B = batch size (10), A = agents (3), D = 255
             flat_states = states.view(B * A, D)  # Flatten to shape (30, 255)
-
             # Forward pass through action_net
             action_list = self.action_net.forward(input=flat_states)
-
-            # Process the output
-            action_list = torch.hstack([
-                torch.abs(action_list[:, 0]).view(-1, 1),
-                action_list[:, 1].view(-1, 1),
-                torch.abs(action_list[:, 2]).view(-1, 1),
-                action_list[:, 3:]
-            ])
-
             # Reshape back to (10, 3, -1)
             action_list = action_list.view(B, A, -1)
             return action_list
         else:
-        
             action_list = self.action_net.forward(input=states) 
-            action_list = torch.hstack([torch.abs(action_list[:, 0]).view(-1,1), action_list[:, 1].view(-1,1), torch.abs(action_list[:, 2]).view(-1,1), action_list[:, 3:]])
-
             return action_list
         
-
-    def update_slow(self):
-        self.slow_val_net.load_state_dict(dc(self.value_net.state_dict()))
-        '''
-        tau = 0.05
-        for target_param, param in zip(self.slow_val_net.parameters(), self.value_net.parameters()):
-           target_param.data.copy_(tau * param.data + (1.0 - tau) * target_param.data)
-        '''
-
-    def predict_value(self, states, slow=False):
+    def predict_value(self, states, ):
         """
         Predicts the nash value of a batch of environmental states
         :param states:    List of environmental state objects
         :return:          Tensor of estimated nash values of all agents for the batch of states
         """
-        if slow:
-            values = self.slow_val_net.forward(input=states)
-        else:
-            values = self.value_net.forward(input=states)
-                
+        values = self.value_net.forward(input=states)     
         return values
 
 
+
+
+    # ---- Previously used -------------
+    '''
+    def get_random_action(self,nash_a ,state):
+        """
+        Selects random action different from nash_action
+        """
+        random_action = torch.zeros_like(nash_a, dtype=torch.long)
+        rates = state[:,:20]
+        for i in range(self.n_users):
+            agent_rate = rates[i,:]
+            available_stations = torch.nonzero(agent_rate, as_tuple=True)[0]
+            original_action = nash_a[i].item()  # Get the original action
+            valid_choices = available_stations[available_stations != original_action] # Exclude the original action
+            if len(valid_choices) > 0:
+                action_chosen = random.choice(valid_choices.tolist())
+                random_action[i] = action_chosen
+            else:
+                random_action[i] = original_action  # If no alternative, keep the original action
+        return random_action
+    
+    
     def compute_value_Loss(self, state_tuples):
         """
         Computes the loss function for the value network
@@ -312,25 +289,37 @@ class NashNN():
         #return torch.sum(((torch.ones(len(isLastState))-isLastState) * nextVal + reward_list - curVal - A)**2) + torch.sum(c4_list**2)
 
 
+    def update_slow(self):
+        self.slow_val_net.load_state_dict(dc(self.value_net.state_dict()))
+        
+        #tau = 0.05
+        #for target_param, param in zip(self.slow_val_net.parameters(), self.value_net.parameters()):
+        #  target_param.data.copy_(tau * param.data + (1.0 - tau) * target_param.data)
+
+        
+           
+    def matrix_slice(self, X):
+        """
+        Returns a matrix where each row in X is replicated N number of times where N
+        is the number of total agents. Then the value of the j'th element of the 
+        (i*N + j)'th row is removed. Effectively creating
+        a stacked version of the u^(-1) or mu(-1) for batched inputs.
+        :param X:    Matrix of actions/nash actions where each row corresponds to one transition from a batch input
+        :return:     Matrix of u^(-1) or mu(-1) as described above
+        """
+        num_entries = len(X)
+        arr = X.repeat_interleave(self.n_users, dim = 0)
+        ids = torch.arange(self.n_users).clone().detach().tile(num_entries)
+        #ids = torch.tensor(torch.arange(self.n_users)).tile(num_entries) #previous version (didn´t work)
+        mask = torch.ones_like(arr).scatter_(1, ids.unsqueeze(1), 0.)
+        res = arr[mask.bool()].view(-1, self.n_users - 1)
+        
+        return res
 
 
-    # ---- Previously used for exploration -------------
+   
+                
     '''
-    def get_random_action(self,nash_a ,state):
-        """
-        Selects random action different from nash_action
-        """
-        random_action = torch.zeros_like(nash_a, dtype=torch.long)
-        rates = state[:,:20]
-        for i in range(self.n_users):
-            agent_rate = rates[i,:]
-            available_stations = torch.nonzero(agent_rate, as_tuple=True)[0]
-            original_action = nash_a[i].item()  # Get the original action
-            valid_choices = available_stations[available_stations != original_action] # Exclude the original action
-            if len(valid_choices) > 0:
-                action_chosen = random.choice(valid_choices.tolist())
-                random_action[i] = action_chosen
-            else:
-                random_action[i] = original_action  # If no alternative, keep the original action
-        return random_action
-    '''
+
+    
+    
