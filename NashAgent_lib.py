@@ -119,7 +119,7 @@ class NashNN():
     :param term_cost:    Terminal costs (estimated or otherwise)
     """
 
-    def __init__(self, n_users, n_stations, lr=1e-4, lat_dims= 512, c_cons=0.1, c2_cons=True, c3_pos=True, layers=1, weighted_adam=True):
+    def __init__(self, n_users, n_stations, lr=2.5e-4, lat_dims= 512 , c_cons=0.1, c2_cons=True, c3_pos=True, layers=1, weighted_adam=True):
         # Simulation Parameters
         self.lr = lr
         self.n_users = n_users
@@ -131,6 +131,9 @@ class NashNN():
             n_users = self.n_users, n_stations = self.n_stations, out_dim=self.output_dim, lat_dims=lat_dims, layers=layers)
         self.value_net = PermInvariantQNN(
             n_users = self.n_users, n_stations = self.n_stations, out_dim=self.output_dim, lat_dims=lat_dims, layers=layers)
+        ## Add this at the beggining
+        #self.value_net.load_state_dict(self.action_net.state_dict())
+
         #self.slow_val_net=PermInvariantQNN(
          #   n_users = self.n_users, n_stations = self.n_stations, out_dim=1, lat_dims=lat_dims, layers=layers)
                 
@@ -147,6 +150,8 @@ class NashNN():
 
             self.optimizer_value = optim.Adam(
                 self.value_net.parameters(), lr=self.lr)
+        
+        #optimizer = optim.Adam(self.action_net.parameters(), lr=args.learning_rate)
 
         # Define loss function (Mean-squared, etc)
         self.criterion = nn.MSELoss()
