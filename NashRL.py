@@ -47,7 +47,6 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
     n_agents = rat_env.n_users
 #------------for debugging and for visualization-----------
     rand_aps_chosen, rand_lte_chosen, best_aps_chosen, best_lte_chosen, best_disconnected, rand_disconnected, step_counter, ap_step, lte_step,negative_reward_count = [0] * 10
-    print_idx = sim_steps/5
     reward_values = [] # store training rewards
     episode_rewards = [] # store training rewards 
     episode_reward = np.zeros(n_agents)
@@ -55,8 +54,8 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
     best_actions = [0]*rat_env.n_stations 
     #------------------------
 
-    #os.makedirs(os.path.dirname(path), exist_ok=True)
     nash_agent = NashNN(n_users=n_agents, n_stations = rat_env.n_stations)
+    #optimizer = torch.optim.Adam(nash_agent.action_net.parameters(), lr=2.5e-4)
     replay_buffer = ExperienceReplay(buffer_size)
     sum_loss = [] #list to store episode loss
     ep = 1
@@ -118,7 +117,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
         learning_starts = buffer_size
         if global_step > learning_starts: # Buffer is full, we can start learning
             if global_step % 10 == 0:
-                gamma = 0.99
+                gamma = 0.97 # 0.97  # 0.95
                 buffer_sample = replay_buffer.sample(128)
                 current_state_list, next_state_list, isLastState_list, rewards_list, act_list = buffer_sample                
                 with torch.no_grad():
@@ -132,17 +131,27 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
                 nash_agent.optimizer_DQN.zero_grad()
                 loss.backward()
                 nash_agent.optimizer_DQN.step()
+                #optimizer.zero_grad()
+                #loss.backward()
+                #optimizer.step()
 
                 sum_loss.append(loss.item()) # store loss for visualization
             
             # Update target network
-            if global_step % 500 == 0: # If I get it back to 100 I can obtain much more variability
-                tau = 1
+            '''
+            if global_step % 500 == 0: # If I set it to 100 I gain variability, if I increase it over 500?
+                tau = 1 # Tweak?
                 for target_network_param, q_network_param in zip(nash_agent.value_net.parameters(), nash_agent.action_net.parameters()):
                     target_network_param.data.copy_(
                         tau * q_network_param.data + (1.0 - tau) * target_network_param.data
                     )
-
+            '''
+            tau = 5*1e-1 #1e-2  #5e-2 1e-3 or 5e-3, higher tau high variabilty and more error
+            for target_param, q_param in zip(nash_agent.value_net.parameters(), nash_agent.action_net.parameters()):
+                target_param.data.copy_(
+                    tau * q_param.data + (1.0 - tau) * target_param.data
+                )   
+            
             if  global_step %(sim_steps/10) == 0:
                 print(f"Iteration {global_step} A_Loss: {loss}")
     
