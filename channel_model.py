@@ -69,7 +69,7 @@ def get_rate(user_position, station_position, rat_type):
     pl = path_loss(d, fc)
     fading = rayleigh_fading()
     rx_power_dbm = tx_power_dbm - pl + linear_to_db(fading)
-    # Noise power
+    # Noise power9
     noise_power_dbm = noise_density_dbm_hz + 10 * np.log10(bw)
     # SNR calculation
     snr_db = rx_power_dbm - noise_power_dbm
