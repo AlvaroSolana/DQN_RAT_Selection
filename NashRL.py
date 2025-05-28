@@ -119,7 +119,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
         learning_starts = buffer_size
         if global_step > learning_starts: # Buffer is full, we can start learning
             if global_step % 10 == 0:
-                gamma = 0.99 # 0.97  # 0.95
+                gamma = 0.97 # tuned
                 buffer_sample = replay_buffer.sample(128)
                 current_state_list, next_state_list, isLastState_list, rewards_list, act_list = buffer_sample                
                 with torch.no_grad():
