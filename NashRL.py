@@ -4,6 +4,7 @@ from datetime import date
 from copy import deepcopy as dc
 import math
 from RAT_env import *
+from tqdm import tqdm
 
 from NashAgent_lib import *
 
@@ -63,7 +64,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
     eps_list = []
     episode_length = []
     # ---------- Main simulation Block -----------------
-    for global_step in range(0, sim_steps):
+    for global_step in tqdm(range(0, sim_steps), desc="Simulation Progress"):
         eps = max(ep-(ep-min_ep)*global_step/sim_steps/exploration_fraction, min_ep) #exploration rate
         eps_list.append(eps)
         current_state, lr, _ = rat_env.get_state()
@@ -112,12 +113,13 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
         # Add step results to the buffer
         rewards = lr.detach()
         next_s = next_s.detach()
+        #print(f"Current state: {cur_s[:, :rat_env.n_stations]} with rewards {rewards} and actions {actions}")
         replay_buffer.add(cur_s[:, :rat_env.n_stations], next_s[:, :rat_env.n_stations], isLastState, rewards, actions)
 
         learning_starts = buffer_size
         if global_step > learning_starts: # Buffer is full, we can start learning
             if global_step % 10 == 0:
-                gamma = 0.97 # 0.97  # 0.95
+                gamma = 0.99 # 0.97  # 0.95
                 buffer_sample = replay_buffer.sample(128)
                 current_state_list, next_state_list, isLastState_list, rewards_list, act_list = buffer_sample                
                 with torch.no_grad():
@@ -139,6 +141,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
             
             # Update target network
             '''
+
             if global_step % 500 == 0: # If I set it to 100 I gain variability, if I increase it over 500?
                 tau = 1 # Tweak?
                 for target_network_param, q_network_param in zip(nash_agent.value_net.parameters(), nash_agent.action_net.parameters()):
@@ -151,7 +154,6 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
                 target_param.data.copy_(
                     tau * q_param.data + (1.0 - tau) * target_param.data
                 )   
-            
             if  global_step %(sim_steps/10) == 0:
                 print(f"Iteration {global_step} A_Loss: {loss}")
     

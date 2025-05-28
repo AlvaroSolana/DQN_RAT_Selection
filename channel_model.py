@@ -77,7 +77,10 @@ def get_rate(user_position, station_position, rat_type):
     spectral_eff = get_spectral_effciency(snr_db, rat_type)
 
     # Data rate = efficiency * bandwidth
-    rate = spectral_eff * bw  # in bps
+    rate = spectral_eff * bw /1e6 # Convert to Mbps
+    
+    if rate==0 or (rat_type == 1 and d > 12):
+        rate = -1 # For the learning to work better
     '''
     print("Distance:", d)
     print("Path loss:", pl)
@@ -87,6 +90,4 @@ def get_rate(user_position, station_position, rat_type):
     print("Spectral Efficiency:", spectral_eff)
     print("Rate (bps):", rate)
     '''
-
-
     return rate
