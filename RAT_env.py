@@ -373,11 +373,18 @@ class Multi_RAT_Network:
     reward function : rewards UE throughput, total system throughput, fairness between users and penalizes RAT changing
     '''
     users_thr = [self.get_ue_throughput(i) for i in range(self.n_users)]
+<<<<<<< HEAD
     #print("users_thr = ", users_thr)
     self.max_thr = 480
     min_thr = 0
     norm_thr = [(throughput - min_thr) / (self.max_thr - min_thr) for throughput in users_thr]
     #print("norm_thr = ", norm_thr)
+=======
+    self.max_thr = 600
+    min_thr = 0
+    norm_thr = [(throughput - min_thr) / (self.max_thr - min_thr) for throughput in users_thr]
+    
+>>>>>>> 3dcd6a6dc746b1968037ff87db2c076bd1c75a0d
     users_reward = []
     for i in range(self.n_users): # Compute reward for each user
         reward = norm_thr[i]
