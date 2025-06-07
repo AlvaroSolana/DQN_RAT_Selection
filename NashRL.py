@@ -141,7 +141,6 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
             
             # Update target network
             '''
-
             if global_step % 500 == 0: # If I set it to 100 I gain variability, if I increase it over 500?
                 tau = 1 # Tweak?
                 for target_network_param, q_network_param in zip(nash_agent.value_net.parameters(), nash_agent.action_net.parameters()):
