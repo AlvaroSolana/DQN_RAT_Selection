@@ -56,4 +56,3 @@ def run_heuristic(rat_env, n_episodes,h_value,p_switch,m):
             rewards_buffer.append(torch.tensor(lr))
 
     return rewards_buffer, actions_buffer
-        

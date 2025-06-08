@@ -47,16 +47,14 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
     """
     n_agents = rat_env.n_users
 #------------for debugging and for visualization-----------
-    rand_aps_chosen, rand_lte_chosen, best_aps_chosen, best_lte_chosen, best_disconnected, rand_disconnected, step_counter, ap_step, lte_step,negative_reward_count = [0] * 10
+    negative_reward_count = [0]
     reward_values = [] # store training rewards
     episode_rewards = [] # store training rewards 
     episode_reward = np.zeros(n_agents)
     last_rats = [0]*rat_env.n_stations # store last rats chosen
     best_actions = [0]*rat_env.n_stations 
     #------------------------
-
     nash_agent = NashNN(n_users=n_agents, n_stations = rat_env.n_stations)
-    #optimizer = torch.optim.Adam(nash_agent.action_net.parameters(), lr=2.5e-4)
     replay_buffer = ExperienceReplay(buffer_size)
     sum_loss = [] #list to store episode loss
     ep = 1
@@ -113,7 +111,6 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
         # Add step results to the buffer
         rewards = lr.detach()
         next_s = next_s.detach()
-        #print(f"Current state: {cur_s[:, :rat_env.n_stations]} with rewards {rewards} and actions {actions}")
         replay_buffer.add(cur_s[:, :rat_env.n_stations], next_s[:, :rat_env.n_stations], isLastState, rewards, actions)
 
         learning_starts = buffer_size
@@ -133,21 +130,10 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
                 nash_agent.optimizer_DQN.zero_grad()
                 loss.backward()
                 nash_agent.optimizer_DQN.step()
-                #optimizer.zero_grad()
-                #loss.backward()
-                #optimizer.step()
 
                 sum_loss.append(loss.item()) # store loss for visualization
             
             # Update target network
-            '''
-            if global_step % 500 == 0: # If I set it to 100 I gain variability, if I increase it over 500?
-                tau = 1 # Tweak?
-                for target_network_param, q_network_param in zip(nash_agent.value_net.parameters(), nash_agent.action_net.parameters()):
-                    target_network_param.data.copy_(
-                        tau * q_network_param.data + (1.0 - tau) * target_network_param.data
-                    )
-            '''
             tau = 5*1e-1 #1e-2  #5e-2 1e-3 or 5e-3, higher tau high variabilty and more error
             for target_param, q_param in zip(nash_agent.value_net.parameters(), nash_agent.action_net.parameters()):
                 target_param.data.copy_(

@@ -43,6 +43,11 @@ class State(ProtoState):
             self.rat_type[idx]
         ], dim=-1).float().to(device)
         
+import copy
+
+def clone(self):
+    return copy.deepcopy(self)
+
 
 class Multi_RAT_Network:
   """
@@ -476,7 +481,8 @@ class Multi_RAT_Network:
         last_rats[action]+=1    
     return last_rats
   #--------------------------
-
+  def clone(self):
+    return copy.deepcopy(self)
 
 class ExperienceReplay:
     """
