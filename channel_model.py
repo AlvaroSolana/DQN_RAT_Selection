@@ -50,7 +50,7 @@ def get_rate(user_position, station_position, rat_type):
     fc_wifi = 5.8e9 # Hz
     tx_power_watt = 1  # W
     tx_power_dbm = 10 * np.log10(tx_power_watt * 1e3)  # dBm
-    noise_density_dbm_hz = -120  # dBm/Hz (thermal noise)
+    noise_density_dbm_hz = -120  # dBm/Hz (gaussian noise)
     
     # Select RAT-specific parameters
     if rat_type == 0:

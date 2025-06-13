@@ -36,7 +36,7 @@ def expand_list(state, n_users):
     return torch.stack(states).float()
 
 
-def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fraction, buffer_size, AN_file_name, VN_file_name,rv_min, rv_max, path, early_stop, early_lim):
+def run_Nash_Agent(rat_env, max_steps, sim_steps, exploration_fraction, buffer_size, AN_file_name, VN_file_name):
     """
     Runs the nash RL algothrim and outputs two files that hold the network parameters
     for the estimated action network and value network
@@ -47,7 +47,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
     """
     n_agents = rat_env.n_users
 #------------for debugging and for visualization-----------
-    negative_reward_count = [0]
+    negative_reward_count = 0  # 
     reward_values = [] # store training rewards
     episode_rewards = [] # store training rewards 
     episode_reward = np.zeros(n_agents)
@@ -72,7 +72,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
         if rand_action_flag:
             actions = torch.randint(0, rat_env.n_stations - 1 ,(n_agents,))
         else: # choose best action (nash action)
-            q_values = nash_agent.predict_action(state[:,:rat_env.n_stations]).detach()
+            q_values = nash_agent.predict_action(state).detach()#[:,:rat_env.n_stations]).detach()
             actions = torch.argmax(q_values, dim=1)
             best_actions = rat_env.get_rat_chosen(actions,best_actions) # For visualization
         
@@ -85,13 +85,6 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
         negative_reward = torch.any(torch.eq(lr, -0.1))
 
         # -------- For debugging --------
-        negative_reward_count += torch.sum(torch.eq(lr, -0.1)).item()
-        if negative_reward:
-            if rand_action_flag:
-                rand_disconnected+=1
-            else:
-                best_disconnected+=1
-        reward_values.append(lr.tolist())
         episode_reward += lr.numpy()
         #---------------------------------- 
         #   
@@ -111,12 +104,13 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
         # Add step results to the buffer
         rewards = lr.detach()
         next_s = next_s.detach()
-        replay_buffer.add(cur_s[:, :rat_env.n_stations], next_s[:, :rat_env.n_stations], isLastState, rewards, actions)
+        #replay_buffer.add(cur_s[:, :rat_env.n_stations], next_s[:, :rat_env.n_stations], isLastState, rewards, actions)
+        replay_buffer.add(cur_s, next_s, isLastState, rewards, actions)
 
         learning_starts = buffer_size
         if global_step > learning_starts: # Buffer is full, we can start learning
-            if global_step % 10 == 0:
-                gamma = 0.97 # tuned
+            if global_step % 1 == 0:
+                gamma = 0.9 # tuned
                 buffer_sample = replay_buffer.sample(128)
                 current_state_list, next_state_list, isLastState_list, rewards_list, act_list = buffer_sample                
                 with torch.no_grad():
@@ -140,15 +134,7 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
                     tau * q_param.data + (1.0 - tau) * target_param.data
                 )   
             if  global_step %(sim_steps/10) == 0:
-                print(f"Iteration {global_step} A_Loss: {loss}")
-    
-            # Save weights
-            save_flag = not (global_step+1) % (sim_steps/5)
-            if save_flag:
-                torch.save(nash_agent.action_net.state_dict(),
-                            AN_file_name + "_" + str(global_step) + ".pt")
-                torch.save(nash_agent.value_net.state_dict(), VN_file_name + "_" + str(global_step) + ".pt")
-                print(f"Weights saved to disk (Checkpoint)")           
+                print(f"Iteration {global_step} A_Loss: {loss}")         
 
     # ------------For visualization-------------
     import csv
@@ -171,6 +157,14 @@ def run_Nash_Agent(rat_env, max_steps, nash_agent, sim_steps, exploration_fracti
 ## Previously used code that may be useful in the future
 
 '''
+
+            # Save weights
+            save_flag = not (global_step+1) % (sim_steps/5)
+            if save_flag:
+                torch.save(nash_agent.action_net.state_dict(),
+                            AN_file_name + "_" + str(global_step) + ".pt")
+                torch.save(nash_agent.value_net.state_dict(), VN_file_name + "_" + str(global_step) + ".pt")
+                print(f"Weights saved to disk (Checkpoint)")  
 
 
             # -------- For debugging --------
@@ -267,4 +261,13 @@ for i in range(n_agents):
     else:
         random_a[i] = random.randint(0,rat_env.n_stations)
 a = random_a
+
+        negative_reward_count += torch.sum(torch.eq(lr, -0.1)).item()
+        if negative_reward:
+            if rand_action_flag:
+                rand_disconnected+=1
+            else:
+                best_disconnected+=1
+        reward_values.append(lr.tolist())
+
 '''

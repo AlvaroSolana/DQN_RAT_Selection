@@ -21,12 +21,13 @@ def dqn_nash_eq(rat_env, action_network, n_episodes, k):
 
     for episode in tqdm(range(n_episodes), desc="Evaluating Dqn Episodes", position=0):
         rat_env.reset()
-        for _ in range(30):  # or rat_env.max_steps
+        for _ in range(rat_env.n_steps):  # or rat_env.max_steps
             state, _, _ = rat_env.get_state()
             state_expanded = expand_list(state, total_users)
 
             # Get actions via policy
-            q_values = predict_action(action_network, state_expanded[:, :rat_env.n_stations])
+            q_values = predict_action(action_network, state_expanded)
+            #q_values = predict_action(action_network, state_expanded[:, :rat_env.n_stations])
             actions = torch.argmax(q_values, dim=1)
 
             # Step with joint action to get actual rewards
@@ -176,7 +177,7 @@ def hartrl_nash_eq(rat_env, p_vectors, n_episodes, k):
 
     for episode in tqdm(range(n_episodes), desc="Evaluating HartRL Episodes", position=0):
         rat_env.reset()
-        for t in range(0, 30):
+        for t in range(0, rat_env.n_steps):
             actions = torch.zeros(rat_env.n_users, dtype=torch.int64)
             for i,p_vector in enumerate(p_vectors):
                 #print(f"p_vector for agent {i}: {p_vector}")

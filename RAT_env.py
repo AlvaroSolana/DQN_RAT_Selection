@@ -60,7 +60,7 @@ class Multi_RAT_Network:
   :param plot: To plot the enviroment intial distribution of its elements
   """
 
-  def __init__(self, area_width, n_users, n_aps, n_steps,  plot ):
+  def __init__(self, area_width, n_users, n_aps, n_steps,  plot, train ):
     """
     Initialize the environment (multiple networks) with its parameters
     """
@@ -71,6 +71,7 @@ class Multi_RAT_Network:
     self.n_users = n_users  
     self.n_steps = n_steps
     self.iteration = 0
+    self.train = train
 
     self.reset() # Initialize the enviroment
 
@@ -291,30 +292,28 @@ class Multi_RAT_Network:
     Plot the positions of LTE SNs, APs, and users in the environment.
     Additionally, plot the movement paths of 5 random users.
     """
-    print(f"Aps positions: {self.aps_positions}")
-    print(f"LTE SNs positions: {self.ltesn_positions}")
     plt.figure(figsize=(5, 5))
 
     # Plot LTE SNs as red triangles
     for position in self.ltesn_positions:
-        plt.scatter(position[0], position[1], c='red', marker='^', label='LTE SN', s=20)
+        plt.scatter(position[0], position[1], c='red', marker='^', label='LTE BS', s=25)
 
     # Plot APs as blue triangles
     for position in self.aps_positions:
-        plt.scatter(position[0], position[1], c='blue', marker='^', label='AP', s=20)
+        plt.scatter(position[0], position[1], c='blue', marker='^', label='AP', s=25)
 
     # Plot users and color them based on RAT assignment
     for user_idx, position in enumerate(self.users_positions):
         rat, node_id = self.user_assignments[user_idx]
-        color = (1, 0, 0, 0.5) if rat == 0 else (0, 0, 1, 0.5)  # Light red for RAT=0, light blue for RAT=1
-        plt.scatter(position[0], position[1], c=color, label=f'User (RAT {rat})', s=10)
+        color = "tab:green"  # Light red for RAT=0, light blue for RAT=1
+        plt.scatter(position[0], position[1], c=color, label="User", s=20)
 
     # Select 5 random users for path plotting
     num_users = len(self.users_positions)
-    sample_users = random.sample(range(num_users), min(10, num_users))
+    sample_users = random.sample(range(num_users), min(5, num_users))
 
     # Define colors for paths
-    path_colors = ['green', 'magenta', 'cyan', 'orange', 'purple']
+    #path_colors = ['green', 'magenta', 'cyan', 'orange', 'purple']
 
     # Plot user paths
     for i,user_idx in enumerate(sample_users):
@@ -322,7 +321,7 @@ class Multi_RAT_Network:
             if len(path) > 1:
                 path_x, path_y = zip(*path)  # Extract x and y coordinates
                 plt.plot(path_x, path_y, linestyle='--', marker='x', markersize=3, 
-                         color=path_colors[i % len(path_colors)])
+                         color='orange', label='User Path')#path_colors[i % len(path_colors)])
 
     # Avoid duplicate legend entries
     handles, labels = plt.gca().get_legend_handles_labels()
@@ -331,13 +330,14 @@ class Multi_RAT_Network:
 
     # Add grid, labels, and plot limits
     plt.grid(True, linestyle='--', alpha=0.6)
-    plt.title('Environment Layout with User Assignments and Paths')
-    plt.xlabel('X Position (m)')
-    plt.ylabel('Y Position (m)')
+    plt.title('Physical Scenario',fontsize = 14)
+    plt.xlabel('X Position (m)',fontsize = 14)
+    plt.ylabel('Y Position (m)',fontsize = 14)
     axis_limit = self.area_width / 2
     plt.xlim(-axis_limit, axis_limit)
     plt.ylim(-axis_limit, axis_limit)
-
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
     plt.show()
 
      
@@ -387,15 +387,16 @@ class Multi_RAT_Network:
     for i in range(self.n_users): # Compute reward for each user
         reward = norm_thr[i]
         if reward > 0 :
-            '''
-            if self.rat_change[i]:
-                last_thr = self.last_reward[i].item() * (max_thr - min_thr) + min_thr
+            
+            if self.train and self.rat_change[i]:
+                last_thr = self.last_reward[i].item() * (self.max_thr)
                 current_thr = users_thr[i]
+                reward = norm_thr[i]
                 if last_thr!=0:
-                    if current_thr/last_thr < 1.05:
-                        reward = ( (current_thr - 0.1*last_thr) - min_thr) / (max_thr - min_thr)
-            '''
-            reward = norm_thr[i]
+                    if current_thr/last_thr < 1.1:
+                        reward = ( (current_thr - 0.1*last_thr) - min_thr) / (self.max_thr - min_thr)
+            else:
+                reward = norm_thr[i]
 
         else: # User disconnected
             reward = -0.1

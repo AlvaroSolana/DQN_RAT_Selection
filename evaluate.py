@@ -28,10 +28,12 @@ def evaluate_action_network(rat_env, action_network, n_episodes):
     action_buffer = []
     for i in range(n_episodes):
         rat_env.reset()
-        for t in range(0, 30):
+        for t in range(0, rat_env.n_steps):
             current_state, _, _ = rat_env.get_state()
             state = expand_list(current_state, rat_env.n_users)
-            actions = torch.argmax(predict_action(action_network, state[:, :rat_env.n_stations]), dim=1)
+            #actions = torch.argmax(predict_action(action_network, state[:, :rat_env.n_stations]), dim=1)
+            actions = torch.argmax(predict_action(action_network, state), dim=1)
+
             _, _, _, reward = rat_env.step(actions.detach())
             
             action_buffer.append(actions)
@@ -98,8 +100,8 @@ def print_stats(rewards, actions,n_users):
     print("-----------------------------------------")
     print(f"{len(counted_aps)} APs chosen {len(APs_chosen)} times ({100 * len(APs_chosen) / (len(APs_chosen) + len(LTEs_chosen)):.2f}%) | {len(counted_ltes)} LTEs chosen {len(LTEs_chosen)} times ({100 * len(LTEs_chosen) / (len(APs_chosen) + len(LTEs_chosen)):.2f}%)")
     print(f"User disconnected {disconnections} times ({(disconnections / total_sn_chosen*100):.5f} %)")
-    print(f"Average reward in LTEs: {average_LTE_reward:.3f} --> {average_LTE_reward * 600:.3f} Mb/s")
-    print(f"Average reward in APs: {average_AP_reward:.3f} --> {average_AP_reward * 600:.3f} Mb/s")
+    print(f"Average reward in LTEs: {average_LTE_reward:.3f} --> {average_LTE_reward * 480 :.3f} Mb/s")
+    print(f"Average reward in APs: {average_AP_reward:.3f} --> {average_AP_reward * 480:.3f} Mb/s")
     print("-----------------------------------------")
     print(f"LTEs chosen :", counted_ltes)
     print(f"APs chosen :", counted_aps)

@@ -69,7 +69,7 @@ def evaluate_hart_rl(p_vectors, rat_env, n_episodes):
     action_buffer = []
     for i in range(n_episodes):
         rat_env.reset()
-        for t in range(0, 30):
+        for t in range(0, rat_env.n_steps):
             actions = torch.zeros(rat_env.n_users, dtype=torch.int64)
             for i,p_vector in enumerate(p_vectors):
                 #print(f"p_vector for agent {i}: {p_vector}")

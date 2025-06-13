@@ -81,7 +81,7 @@ class PermInvariantQNN(torch.nn.Module):  # invariant features --> do not depend
         self.n_stations = n_stations
         self.out_dim = out_dim 
         nets = []
-        input_dim = n_stations #* 3 # number of features/columns of the state space (rate , station_id , rate_type)
+        input_dim = n_stations * 3 # number of features/columns of the state space (rate , station_id , rate_type)
         nets.append(nn.Linear(input_dim, lat_dims)) # lat_dims = number of neurons per layer
         #nets.append(nn.LeakyReLU(0.1))
         nets.append(nn.ReLU())
