@@ -37,7 +37,7 @@ Ensure Python 3.8+ and PyTorch are installed. Then clone the repository and inst
 git clone https://github.com/AlvaroSolana/DQN_RAT_Selection.git
 cd DQN_RAT_Selection
 pip install -r requirements.txt
-
+```
 
 ## 🚀 Usage
 
