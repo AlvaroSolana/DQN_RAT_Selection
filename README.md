@@ -46,6 +46,7 @@ pip install -r requirements.txt
 ```bash
 jupyter lab
 ```
+Use the provided notebooks to train and evaluate the DQN
 
 ## 📄 License
 
@@ -53,4 +54,4 @@ This project is open-source under the MIT License. Feel free to use, modify, and
 
 ## 📬 Contact
 
-Developed by Álvaro Solana Lambán for his Telecommunications BSc Thesis. For questions, reach out via LinkedIn or check the thesis report included in the repository
+Developed by Álvaro Solana Lambán for his Telecommunications BSc Thesis. For questions, reach out via LinkedIn or check the thesis report included in the repository.
