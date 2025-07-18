@@ -15,9 +15,9 @@ def predict_action(nn,states):
 
     if len(states.shape) > 2:
         B, A, D = states.shape 
-        flat_states = states.view(B * A, D) 
-        action_list = nn.forward(input=flat_states)
-        action_list = action_list.view(B, A, -1)
+        flat_states = states.view(B * A, D) # Flatten to (B*A, D)
+        action_list = nn.forward(input=flat_states) # Predict Q-values
+        action_list = action_list.view(B, A, -1) # Reshape back to (B, A, out_dim)
     else:
         action_list = nn.forward(input=states) 
         
@@ -29,17 +29,17 @@ def evaluate_action_network(rat_env, action_network, n_episodes):
     Runs episodes, collects rewards and actions taken by users.
     Returns lists of rewards and actions recorded during evaluation.
     """
-    action_network.eval()
+    action_network.eval() # Set network to evaluation mode
 
     reward_buffer = []
     action_buffer = []
     for _ in range(n_episodes):
-        rat_env.reset()
+        rat_env.reset() # Reset environment at start of episode
         for _ in range(0, rat_env.n_steps):
-            current_state, _, _ = rat_env.get_state()
-            state = expand_list(current_state, rat_env.n_users)
-            actions = torch.argmax(predict_action(action_network, state), dim=1)
-            _, _, _, reward = rat_env.step(actions.detach())
+            current_state, _, _ = rat_env.get_state() # Get current state
+            state = expand_list(current_state, rat_env.n_users) # Expand state per user
+            actions = torch.argmax(predict_action(action_network, state), dim=1) # Choose action with highest Q-value
+            _, _, _, reward = rat_env.step(actions.detach()) # Take action in environment
             
             action_buffer.append(actions)
             reward_buffer.append(reward)
@@ -56,11 +56,9 @@ def plot_reward(reward_buffer):
     n_agents = len(reward_buffer[0])
     
     fig, axes = plt.subplots(2, 5, figsize=(12, 6))
-
     for i in range(n_agents):
         ax = axes[i // 5, i % 5]
         agent_rewards = np.array([reward_buffer[run][i] for run in range(n_runs)])
-    
         ax.plot(range(n_runs), agent_rewards, label=f"User {i+1}")
         ax.set_title(f"User {i+1}")
         ax.set_xlabel("Step")
@@ -110,7 +108,8 @@ def print_stats(rewards, actions,n_users):
     average_AP_reward = np.mean([reward for reward, action in zip(rewards, actions) if any(value.item() > 3 for value in action)])
     all_rewards = torch.cat(rewards).numpy()
     total_sn_chosen =  len(APs_chosen) + len(LTEs_chosen)
-    disconnections = np.sum(all_rewards < 0)
+    disconnections = np.sum(all_rewards < 0) # Count rewards < 0 as disconnections
+
 
     print(f"TEST RESULTS with {n_users} users in 150 episodes ({total_sn_chosen} stations chosen)")
     print("-----------------------------------------")

@@ -40,19 +40,24 @@ class PermInvariantQNN(torch.nn.Module):
         self.n_users = n_users
         self.n_stations = n_stations
         self.out_dim = out_dim 
+        
         nets = []
         input_dim = n_stations * 3  # number of features/columns of the state space (rate , station_id , rate_type)
+        
+        # First layer
         nets.append(nn.Linear(input_dim, lat_dims))  # lat_dims = number of neurons per layer
         nets.append(nn.ReLU())
         nets.append(nn.LayerNorm(lat_dims))
 
+        # Hidden layers
         for i in range(layers):
             next_lat_dims = max(int(lat_dims // 2), out_dim) 
             nets.append(nn.Linear(lat_dims, next_lat_dims))
             nets.append(nn.LayerNorm(next_lat_dims))
             nets.append(nn.ReLU())
             lat_dims = next_lat_dims
-        # Final layer to output the desired dimension
+        
+        # Output layer
         nets.append(nn.Linear(lat_dims, self.out_dim))
         self.decoder_net = nn.Sequential(*nets)
         
@@ -81,19 +86,19 @@ class DQN_NN():
     :param layers:      Number of layers in the network
     :param weighted_adam: Whether to use AdamW instead of Adam
     """
-    def __init__(self, n_users, n_stations, lat_dims= 512 , c_cons=0.1, c2_cons=True, c3_pos=True, layers=1, weighted_adam=True):
+    def __init__(self, n_users, n_stations, lat_dims= 512, layers=1, weighted_adam=True):
         # Simulation Parameters
         self.n_users = n_users
         self.n_stations = n_stations
         self.output_dim = n_stations    
 
-        # Initialize Networks
+        # Initialize action and value networks
         self.action_net = PermInvariantQNN(
             n_users = self.n_users, n_stations = self.n_stations, out_dim=self.output_dim, lat_dims=lat_dims, layers=layers)
         self.value_net = PermInvariantQNN(
             n_users = self.n_users, n_stations = self.n_stations, out_dim=self.output_dim, lat_dims=lat_dims, layers=layers)
 
-        # Define optimizer
+        # Choose optimizer
         self.lr = 2.5e-4
         if weighted_adam:
             self.optimizer_DQN = optim.AdamW(
@@ -108,13 +113,8 @@ class DQN_NN():
             self.optimizer_value = optim.Adam(
                 self.value_net.parameters(), lr=self.lr)
         
-        # Define loss function (Mean-squared, etc)
+        # Mean Squared Error loss for Q-value targets
         self.criterion = nn.MSELoss()
-        
-        # Define constant L-2 penalty
-        self.c_cons = c_cons
-        self.c2_cons = c2_cons
-        self.c3_pos = c3_pos
 
     def predict_action(self, states):
         """
@@ -124,15 +124,13 @@ class DQN_NN():
         """
         if len(states.shape) > 2:
             B, A, D = states.shape
-            flat_states = states.view(B * A, D)  # Flatten 
-            # Forward pass through action_net
-            action_list = self.action_net.forward(input=flat_states)
-            # Reshape back
-            action_list = action_list.view(B, A, -1)
-            return action_list
+            flat_states = states.view(B * A, D)  # Flatten to (B*A, D)
+            action_list = self.action_net.forward(input=flat_states)  # Predict Q-values
+            action_list = action_list.view(B, A, -1)  # Reshape back to (B, A, out_dim)
         else:
             action_list = self.action_net.forward(input=states) 
-            return action_list
+        
+        return action_list
         
     def predict_value(self, states, ):
         """

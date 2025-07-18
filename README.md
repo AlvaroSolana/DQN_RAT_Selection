@@ -1,57 +1,56 @@
-# Nash_DQN_RAT
+# DQN-RAT-Selection:  Improving User Throughput in Multi-RAT Networks Using Reinforcement Learning
 
-## Overview
+## 📡 Overview
 
-This repository contains both python files and Jupyter Notebooks that are used in a simulation where the goal is to improve overall user throughput using Reinforcement Learning
+With the exponential growth of connected mobile devices, the efficient use of wireless infrastructure has become increasingly important. Radio Access Technology (RAT) selection is a critical challenge in heterogeneous networks (HetNets), where users must choose efficiently between multiple available technologies, such as WiFi and LTE, in order to maximize their throughput.
 
-## Files
+The work was developed as part of a Bachelor's Thesis in Telecommunications Engineering, and it enables training, evaluation, and visualization of different metrics. For more information check the thesis report.
 
-- **RAT_training.ipynb**:In this notebook we are able to set the parameters of the scenario where the model will be trained, as well as peform this training.
-- **test.ipynb**: In this notebook we take the action network obtained from the training to test it in new scenarios and measure its performance, i.e. throguhput achieved by the users.
-- **Nash_RL.py**: Among other things it contains the main training algorithm, uses the rest of the files to return the action network among other things.
-- **Nash_Agent_lib.py**: Contains the NN required to perform the training, and functions to perform feed forward, back_propagation, loss computation...
-- **RAT_env.py**: Contains the enviroment definition and functions required for the Reinforcement Learning
-- **Action_Net & Value net**: Output of the training, the action net will be used for testing the model in the test.ipynb.
+## 🎯 Project Goal
 
-## Datasets Used
+To evaluate the effectiveness of DQN-based RAT-Selection compared to other baseline methods in different key metrics such as throughput, fairness,  managing congestion, and user disconnection rate, demonstrating the effectiveness of this approach in managing the complex and dynamic RAT selection problem.
 
-The following CSV file were used in this project:
-- `cqi_distance.csv` – Contains pairs of cqi values from users at a certain distance from the LTE Base Station.
-- `rssi_distance` – Contains pairs of rssi values from users at a certain distance from the Access points.
-- `rewards.csv` – Created in the training for visualizing the reward of each user during the training.
-- `Data_analysis` – Contains csv files and jupyter notebooks that were used to analyse and create the datasets cqi_distance.csv and rssi_distance.csv .
-  
-## Requirements
+## 🗂️ File Descriptions
 
-To run the notebooks, ensure you have the following dependencies installed:
+| File | Description |
+|------|-------------|
+| `RAT_env.py` | Core simulation environment modeling users, RATs, mobility, reward function, and interactions. |
+| `channel_model.py` | Defines wireless channel behavior (path loss, Rayleigh fading, SNR, spectral efficiency). |
+| `DQN_Agent_lib.py` | Deep Q-Network architecture with permutation-invariant layers and target/value nets. |
+| `RL.py` | Main script for training the DQN agent, managing epsilon decay, buffer sampling, and network updates. |
+| `evaluate.py` | Runs trained models in the environment and generates performance plots and statistics. |
+| `heuristic.py` | Baseline algorithm: users probabilistically switch RATs based on throughput improvements. |
+| `HartRL.py` | Stateless regret-based algorithm for decentralized user selection. |
+| `RAT_training.ipynb` | Jupyter notebook to train the DQN agent and export model weights. |
+| `test.ipynb` | Notebook to evaluate trained models and compare them with heuristics and Hart RL across metrics. |
+| `Action_Net.pt` | Pre-trained PyTorch model weights for the final DQN agent used in testing. |
+| `LICENSE` | MIT License for open-source use and distribution. |
+| `requirements.txt` | Python dependencies needed to run the project. |
+| `thesis_report.pdf` | Detailed explanation of this project. |
+
+
+## 📦 Installation
+
+Ensure Python 3.8+ and PyTorch are installed. Then clone the repository and install dependencies:
 
 ```bash
-pip install numpy pandas matplotlib random csv
+git clone https://github.com/AlvaroSolana/DQN_RAT_Selection.git
+cd DQN_RAT_Selection
+pip install -r requirements.txt
+
+
+## 🚀 Usage
+
+### 📓 Notebook Mode (Recommended)
+
+```bash
+jupyter lab
 ```
 
-## Usage
+## 📄 License
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/AlvaroSolana/Nash_DQN_RAT
-   ```
-2. Navigate to the project directory:
-   ```bash
-   cd Nash_DQN_RAT
-   ```
-3. Launch Jupyter Notebook:
-   ```bash
-   jupyter lab
-   ```
-   If you need to install jupyter lab: https://jupyter.org/install
-   
-5. Open and run the notebooks as needed.
+This project is open-source under the MIT License. Feel free to use, modify, and share.
 
-## License
+## 📬 Contact
 
-This project is open-source and available under the MIT License.
-
-## Contact
-
-For any questions or contributions, feel free to open an issue or reach out!
-
+Developed by Álvaro Solana Lambán for his Telecommunications BSc Thesis. For questions, reach out via LinkedIn or check the thesis report included in the repository
