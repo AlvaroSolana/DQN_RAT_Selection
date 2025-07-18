@@ -4,12 +4,24 @@ from datetime import date
 from copy import deepcopy as dc
 from RAT_env import *
 from tqdm import tqdm
-
 import os
 
 
 def compute_regret(regret_vector,rat_env,user_idx,user_action,user_reward):
-    # Obtain new regret vectors for the user
+    """
+    Computes and updates the regret vector for a given user based on the difference
+    between the rewards of alternative actions and the user's current reward.
+
+    Parameters:
+    - regret_vector (torch.Tensor): Current regret vector for the user.
+    - rat_env (object): The RAT environment instance.
+    - user_idx (int): Index of the user.
+    - user_action (int): Current action taken by the user.
+    - user_reward (float): Reward received by the user for the current action.
+
+    Returns:
+    - torch.Tensor: Updated regret vector for the user.
+    """
     regrets = [0.0] * rat_env.n_stations
     for rat in range(rat_env.n_stations):
         rat_id = 0 if rat < rat_env.n_ltesn else 1
@@ -28,12 +40,16 @@ def compute_regret(regret_vector,rat_env,user_idx,user_action,user_reward):
 
 def run_Hart_RL(rat_env, max_steps, sim_steps):
     """
-    Runs the nash RL algothrim and outputs two files that hold the network parameters
-    for the estimated action network and value network
-    :param num_sim:           Number of Simulations
-    :param batch_update_size: Number of experiences sampled at each time step
-    :param buffersize:        Maximum size of replay buffer
-    :return: Truncated Array
+    Runs the Hart learning algorithm for multi-agent reinforcement learning in the RAT environment.
+    Probability vectors are updated iteratively based on regret values for each user.
+
+    Parameters:
+    - rat_env (object): The RAT environment instance.
+    - max_steps (int): Maximum number of steps before environment reset.
+    - sim_steps (int): Total number of simulation steps to run.
+
+    Returns:
+    - List[torch.Tensor]: List of learned probability vectors for each user.
     """
     n_agents = rat_env.n_users
     p_vectors = [torch.full((rat_env.n_stations,), 1 / rat_env.n_stations) for _ in range(n_agents)]
@@ -41,9 +57,7 @@ def run_Hart_RL(rat_env, max_steps, sim_steps):
     actions = torch.zeros(n_agents, dtype=torch.int64)
 
     for _ in tqdm(range(0, sim_steps), desc="Simulation Progress"):
-        # Select and take action
         for i,p_vector in enumerate(p_vectors):
-            #print(f"p_vector for agent {i}: {p_vector}")
             action = np.random.choice(len(p_vector), p=p_vector.cpu().numpy() / p_vector.sum().item())
             actions[i] = action
         _,_,_,rewards = rat_env.step(actions)
@@ -61,10 +75,21 @@ def run_Hart_RL(rat_env, max_steps, sim_steps):
         else:
             rat_env.iteration = rat_env.iteration + 1
 
-    #Simulation finished, save the p_vectors   
     return p_vectors
 
 def evaluate_hart_rl(p_vectors, rat_env, n_episodes):
+    """
+    Evaluates the Hart RL policy by simulating a number of episodes.
+    Actions are sampled from the learned probability distributions, and rewards collected.
+
+    Parameters:
+    - p_vectors (List[torch.Tensor]): Learned probability vectors for each user.
+    - rat_env (object): The RAT environment instance.
+    - n_episodes (int): Number of episodes to simulate for evaluation.
+
+    Returns:
+    - List[torch.Tensor], List[torch.Tensor] : Buffers of collected rewards and actions.
+    """
     reward_buffer = []
     action_buffer = []
     for i in range(n_episodes):
@@ -72,7 +97,6 @@ def evaluate_hart_rl(p_vectors, rat_env, n_episodes):
         for t in range(0, rat_env.n_steps):
             actions = torch.zeros(rat_env.n_users, dtype=torch.int64)
             for i,p_vector in enumerate(p_vectors):
-                #print(f"p_vector for agent {i}: {p_vector}")
                 action = np.random.choice(len(p_vector), p=p_vector.cpu().numpy() / p_vector.sum().item())
                 actions[i] = action
             _,_,_,rewards = rat_env.step(actions)

@@ -26,14 +26,16 @@ State object summarizing observable features of the environment at each time ste
 """
 ProtoState = namedtuple('State', ('rate', 'station_id', 'rat_type'))
 
-device = torch.device("cpu")
 
 class State(ProtoState):
 
     def to_sep_numpy(self, idx):
         """
         Extract and normalize the state for a specific agent.
-        :param idx: Index of the agent whose state is being extracted.
+        Parameters:
+        - idx (int): Index of the agent.
+        Returns:
+        - torch.Tensor: Flattened and normalized state vector for the agent.
         """
         agent_rate = self.rate[idx]
         normalized_rate = torch.tensor([(rate - 0)/(480 - 0) if rate > 0 else rate for rate in agent_rate])
@@ -46,23 +48,27 @@ class State(ProtoState):
 import copy
 
 def clone(self):
+    """
+    Creates a deep copy of the object.
+    """
     return copy.deepcopy(self)
 
 
 class Multi_RAT_Network:
   """
-  Class representing the multi RAT environment
-
-  :param user_area_width: Width of the area of users
-  :param ltesn_area_width : Width of the area of lte serving nodes
-  :param n_aps : Number of APs in the scenario
-  :param n_users: Number of user terminals in the scenario
-  :param plot: To plot the enviroment intial distribution of its elements
+    Class representing the multi RAT environment.
+    Parameters:
+    - area_width (float): Width of the simulation area.
+    - n_users (int): Number of users.
+    - n_aps (int): Number of Wi-Fi APs.
+    - n_steps (int): Number of movement steps.
+    - plot (bool): Whether to plot the environment initially.
+    - train (bool): If True, training logic will apply (e.g. RAT switching penalty).
   """
-
   def __init__(self, area_width, n_users, n_aps, n_steps,  plot, train ):
     """
-    Initialize the environment (multiple networks) with its parameters
+    Initializes the Multi-RAT environment with LTE and Wi-Fi stations,
+    users, their assignments, rates, and paths.
     """
     self.area_width = area_width
     self.n_ltesn = 4
@@ -81,7 +87,8 @@ class Multi_RAT_Network:
 
   def reset(self):
     """
-        Reset enviroment
+    Resets the environment, initializes users, stations, positions, paths,
+    assignments, and computes initial rates and states.
     """
     # Reset rewards
     self.last_reward = torch.zeros(self.n_users).to(device)
@@ -178,7 +185,6 @@ class Multi_RAT_Network:
                 closest_distance = distance
                 assignment = [0, i]  # [RAT=0 (LTE SN), Node ID=i]
 
-        #if random.random() < 0.5:  # 50% probability to check distances to APs (they will probably be closer than LTEs) 
         for i, ap_pos in enumerate(self.aps_positions):
             distance = math.sqrt((user_pos[0] - ap_pos[0]) ** 2 + (user_pos[1] - ap_pos[1]) ** 2)
             if distance < closest_distance and distance < 12:
@@ -248,12 +254,18 @@ class Multi_RAT_Network:
 
 
   def update_users_positions(self):
-    # Move the user from intial position to destination
+    """
+    Moves all users one step forward along their predefined straight-line paths.
+    Updates `self.users_positions` in-place.
+    """
     next_idx = self.iteration + 1
     self.users_positions = [user_path[next_idx] for user_path in self.users_path]
 
   def update_user_rate(self):
-    # Update the rate for each user based on their new position and achievable rates from all stations
+    """
+    Updates the achievable data rates between users and all stations
+    based on the updated positions of the users.
+    """
     for user_idx, user_pos in enumerate(self.users_positions):
         rates_lte = []
         for station_pos in self.ltesn_positions:
@@ -269,6 +281,10 @@ class Multi_RAT_Network:
 
 
   def update_station_id(self):
+    """
+    Updates the station assignment matrix indicating the currently connected
+    station for each user using one-hot encoding.
+    """
     # Reinitialize the station_id tensor to zeros before updating
     num_stations = len(self.ltesn_positions) + len(self.aps_positions)
     self.station_id = torch.zeros((self.n_users, num_stations)).to(device)
@@ -281,7 +297,10 @@ class Multi_RAT_Network:
 
 
   def update_state(self):
-
+    """
+    Updates the environment by moving users, updating rates,
+    and refreshing user-to-station assignments.
+    """
     self.update_users_positions() # Move the user
     self.update_user_rate() # Update available rate in every station
     self.update_station_id() #Updates the station_id matrix based on the current user assignments.
@@ -289,8 +308,10 @@ class Multi_RAT_Network:
 
   def plot_environment(self):
     """
-    Plot the positions of LTE SNs, APs, and users in the environment.
-    Additionally, plot the movement paths of 5 random users.
+    Plots a visual representation of the environment including:
+    - LTE base stations
+    - Wi-Fi APs
+    - User positions and movement paths (for 5 random users)
     """
     plt.figure(figsize=(5, 5))
 
@@ -311,9 +332,6 @@ class Multi_RAT_Network:
     # Select 5 random users for path plotting
     num_users = len(self.users_positions)
     sample_users = random.sample(range(num_users), min(5, num_users))
-
-    # Define colors for paths
-    #path_colors = ['green', 'magenta', 'cyan', 'orange', 'purple']
 
     # Plot user paths
     for i,user_idx in enumerate(sample_users):
@@ -343,13 +361,12 @@ class Multi_RAT_Network:
      
   def get_ue_throughput(self, user_id):
     """
-    Calculate the user's throughput based on physical position and station type.
+    Calculates the throughput for a specific user based on their current assignment.
     """
     rat, station_idx = self.user_assignments[user_id]
     shared_users = sum([1 for assignment in self.user_assignments if assignment == (rat, station_idx)])
     
     base_rate = self.rate[user_id, (station_idx + rat* self.n_ltesn)].item()  # Get the base rate for the user at the assigned station
-    #print("base_rate = ", base_rate,"rat = ",rat, "station_idx = ",station_idx)
     throughput = 0
     if base_rate>0:
         if rat == 0:  # LTE user
@@ -374,15 +391,18 @@ class Multi_RAT_Network:
 
 
   def r(self):  
-    '''
-    reward function : rewards UE throughput, total system throughput, fairness between users and penalizes RAT changing
-    '''
+    """
+    Computes the reward for all users:
+    - Encourages high throughput
+    - Penalizes unnecessary RAT switches
+    - Penalizes disconnection
+    Returns:
+    - torch.Tensor: Reward vector for all users.
+    """
     users_thr = [self.get_ue_throughput(i) for i in range(self.n_users)]
-    #print("users_thr = ", users_thr)
     self.max_thr = 480
     min_thr = 0
     norm_thr = [(throughput - min_thr) / (self.max_thr - min_thr) for throughput in users_thr]
-    #print("norm_thr = ", norm_thr)
     users_reward = []
     for i in range(self.n_users): # Compute reward for each user
         reward = norm_thr[i]
@@ -400,7 +420,6 @@ class Multi_RAT_Network:
 
         else: # User disconnected
             reward = -0.1
-        #print("reward = ", reward)
         users_reward.append(reward)
     return torch.tensor(users_reward, dtype=torch.float)
   
@@ -408,11 +427,11 @@ class Multi_RAT_Network:
   def step(self,actions):
     
     """
-    Calculate and update all environment parameters given all agent's actions.
-    Returns a Transition tuple holding observable state values of the previous
-    state of the environment, actions executed by all agents, observable state
-    values of the resultant state and the rewards obtained by all agents.')
-    :param actions: Output of the NN, torch.Size([N_users,N_stations])
+    Executes a simulation step based on agent actions.
+    Parameters:
+    - actions (torch.Tensor): Action tensor of shape [n_users, 2].
+    Returns:
+    - Transition: Tuple of (state, action, next_state, reward).
     """
     
     last_state, _, _ =self.get_state()
@@ -422,7 +441,7 @@ class Multi_RAT_Network:
         rat_id = 0 if rat_choice < self.n_ltesn else 1
         node_id = rat_choice - rat_id * self.n_ltesn
         rats_chosen.append([rat_id,node_id])
-    # Udpadate self.RAT_change
+    # Update self.RAT_change
     current_rats = [rat[0] for rat in self.user_assignments]
     new_rats = [action[0] for action in rats_chosen]
     self.rat_change = [0] * self.n_users
@@ -430,18 +449,6 @@ class Multi_RAT_Network:
         if current_rats[i] != new_rats[i]:
             self.rat_change[i] = 1
 
-    '''     # DEBUGGING BLOCK
-    # Check distance between AP chosen and user
-    for i,user_pos in enumerate(self.users_positions):
-        if new_rats[i] == 1: #If we have chosen an AP
-            AP_id = rats_chosen[i][1] # Select ID of the AP of
-            #print("AP_id = ",AP_id)
-            ap_pos = self.aps_positions[AP_id]
-            distance = math.sqrt((user_pos[0]-ap_pos[0])**2 + (user_pos[1]-ap_pos[1])**2)
-            if distance > 12 and self.iteration==1:
-                print("AP chosen OUT OF RANGE")
-                print(f"User position [x,y] = [{user_pos[0]:.3f}, {user_pos[1]:.3f}] Chosen AP position [x,y] = [{self.aps_positions[AP_id][0]:.3f}, {self.aps_positions[AP_id][1]:.3f}]")
-    '''
     # Update self.user_assignments
     self.user_assignments = rats_chosen
     # Compute Reward for each agent in this enviroment
@@ -476,7 +483,7 @@ class Multi_RAT_Network:
   def __repr__(self):
         return self.__str__()    
   
-  #-----debugging-------------
+  #-----visualization-------------
   def get_rat_chosen(self,actions,last_rats):
     for action in actions:        
         last_rats[action]+=1    
@@ -484,6 +491,7 @@ class Multi_RAT_Network:
   #--------------------------
   def clone(self):
     return copy.deepcopy(self)
+
 
 class ExperienceReplay:
     """

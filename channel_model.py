@@ -1,23 +1,42 @@
 import numpy as np
 
-# COST 231 Walfisch-Ikegami model
-def path_loss(d, fc):  # d in meters, fc in Hz
+def path_loss(d, fc):
+    """
+    Calculates path loss using the COST 231 Walfisch-Ikegami model.
+    Parameters:
+        d (float): Distance between transmitter and receiver in meters.
+        fc (float): Carrier frequency in Hz.
+    Returns:
+        Path loss in dB.
+    """
     return -35.4 + 20 * np.log10(d) + 20 * np.log10(fc/10**6)
 
-# Rayleigh fading in linear scale
+
 def rayleigh_fading():
+    """
+    Simulates Rayleigh fading and returns the fading factor in linear scale.
+    """
     return np.random.rayleigh(scale=1.0)
 
-# Convert dB to linear
 def db_to_linear(db):
+    """Convert dB value to linear scale."""
     return 10 ** (db / 10)
 
-# Convert linear to dB
 def linear_to_db(linear):
+    """Convert linear value to dB scale."""
     return 10 * np.log10(linear)
 
-# Map SNR to spectral efficiency
-def get_spectral_effciency(snr_db, rat_type):  # rat_type = 0 for LTE, 1 for WiFi
+
+
+def get_spectral_effciency(snr_db, rat_type):
+    """
+    Maps SNR (in dB) to spectral efficiency based on RAT type.
+    Parameters:
+        snr_db (float): Signal-to-noise ratio in dB.
+        rat_type (int): 0 for LTE, 1 for WiFi.
+    Returns:
+        Spectral efficiency in bits/s/Hz.
+    """
     snr = snr_db
     if rat_type == 0:  # LTE (based on 3GPP CQI Table)
         cqi_table = [
@@ -41,8 +60,18 @@ def get_spectral_effciency(snr_db, rat_type):  # rat_type = 0 for LTE, 1 for WiF
                 return efficiency
         return 0.0
 
-# Get achievable rate based on position and RAT
+
 def get_rate(user_position, station_position, rat_type):
+    """
+    Computes the achievable data rate based on user and station positions and RAT type.
+    Considers path loss, Rayleigh fading, noise, and bandwidth.
+    Parameters:
+        user_position (array-like): Coordinates of the user.
+        station_position (array-like): Coordinates of the base station or AP.
+        rat_type (int): 0 for LTE, 1 for WiFi.
+    Returns:
+        Achievable rate in Mbps. Returns -1 if rate is zero or user is out of WiFi range.
+    """
     # Parameters
     bw_lte = 20e6 # Hz
     fc_lte = 2.6e9 # Hz
@@ -69,7 +98,7 @@ def get_rate(user_position, station_position, rat_type):
     pl = path_loss(d, fc)
     fading = rayleigh_fading()
     rx_power_dbm = tx_power_dbm - pl + linear_to_db(fading)
-    # Noise power9
+    # Noise power
     noise_power_dbm = noise_density_dbm_hz + 10 * np.log10(bw)
     # SNR calculation
     snr_db = rx_power_dbm - noise_power_dbm
@@ -81,13 +110,5 @@ def get_rate(user_position, station_position, rat_type):
     
     if rate==0 or (rat_type == 1 and d > 12):
         rate = -1 # For the learning to work better
-    '''
-    print("Distance:", d)
-    print("Path loss:", pl)
-    print("Fading:", fading)
-    print("Rx Power (dBm):", rx_power_dbm)
-    print("SNR (dB):", snr_db)
-    print("Spectral Efficiency:", spectral_eff)
-    print("Rate (bps):", rate)
-    '''
+
     return rate
